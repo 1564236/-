@@ -44,6 +44,7 @@
         <div class="boss-panel hidden" id="boss-panel">
           <div class="boss-heading"><span id="boss-title">混世魔王</span><em id="boss-phase">妖王</em></div>
           <div class="boss-bar"><i id="boss-fill"></i></div>
+          <div class="boss-poise-bar hidden" id="boss-poise-bar"><i id="boss-poise-fill"></i></div>
         </div>
 
         <div class="wave-banner hidden" id="wave-banner">
@@ -107,6 +108,9 @@
           <span><kbd>G</kbd> 熔炉</span>
           <span><kbd>M</kbd> 选关</span>
           <span><kbd>R</kbd> 轮回</span>
+          <span><kbd>N</kbd> 觉醒</span>
+          <span><kbd>V</kbd> 淬体</span>
+          <span><kbd>Y</kbd> 翅膀</span>
           <span><kbd>C</kbd> 背包</span>
         </div>
       </section>
@@ -135,13 +139,16 @@
             <span><kbd>G</kbd> 熔炉</span>
             <span><kbd>M</kbd> 选关</span>
             <span><kbd>R</kbd> 轮回</span>
+            <span><kbd>N</kbd> 觉醒</span>
+            <span><kbd>V</kbd> 淬体</span>
+            <span><kbd>Y</kbd> 翅膀</span>
             <span><kbd>Shift</kbd> 闪避</span>
             <span><kbd>T</kbd> 技能面板</span>
             <span><kbd>C</kbd> 背包</span>
           </div>
           <p class="fan-note">致敬《造梦西游3》的像素同人练习作 · 键盘 / 触屏均可游玩</p>
         </div>
-        <div class="title-footer"><span>v2.3 · 二十关</span><span>本地自动存档</span></div>
+        <div class="title-footer"><span>v3.1 · 神通狂暴</span><span>本地自动存档</span></div>
       </section>
 
       <!-- ===== 关卡横幅 ===== -->
@@ -166,6 +173,9 @@
             <button class="pixel-button" id="pause-shop-button">商店</button>
             <button class="pixel-button" id="pause-stage-button">选关</button>
             <button class="pixel-button" id="pause-reincarnation-button">轮回</button>
+            <button class="pixel-button" id="pause-awaken-button">觉醒前世</button>
+            <button class="pixel-button" id="pause-body-button">灵药淬体</button>
+            <button class="pixel-button" id="pause-wing-button">翅膀</button>
             <button class="pixel-button ghost" id="quit-button">返回标题</button>
           </div>
           <p class="modal-tip">提示：按 <kbd>Esc</kbd> 也可以返回战斗</p>
@@ -200,6 +210,11 @@
                     <button class="tiny-button" id="inv-skin-unequip">卸下</button>
                   </span>
                   <span class="character-meta-line">称号 <b id="inv-title">无称号</b></span>
+                  <span class="character-meta-line">翅膀 <b id="inv-wing">无</b></span>
+                  <span class="character-meta-actions">
+                    <button class="tiny-button gold" id="inv-wing-open">翅膀面板</button>
+                    <button class="tiny-button" id="inv-wing-unequip">卸下</button>
+                  </span>
                 </div>
               </div>
               <div class="gear-slots" id="gear-slots">
@@ -248,6 +263,11 @@
                 </div>
               </div>
               <div class="bag-grid" id="bag-grid"></div>
+              <div class="bag-pager">
+                <button class="tiny-button" id="bag-prev">上一页</button>
+                <span class="bag-page-label" id="bag-page-label">1 / 1</span>
+                <button class="tiny-button" id="bag-next">下一页</button>
+              </div>
               <div class="item-detail" id="item-detail">
                 <div class="item-detail-empty">选择一件装备查看详情</div>
               </div>
@@ -329,6 +349,7 @@
               <h3 id="artifact-name">玉净瓶</h3>
               <p class="artifact-tag" id="artifact-tag">净化 · 持续回复</p>
               <p class="artifact-desc" id="artifact-desc">倾出净瓶甘露，清除自身所有负面效果，并在 8 秒内持续恢复生命与法力。</p>
+              <div class="artifact-stats" id="artifact-stats">属性加成：—</div>
               <div class="artifact-recipe">炼制消耗 <b id="artifact-cost">净瓶灵砂 ×3</b></div>
               <div class="artifact-actions">
                 <button class="pixel-button primary" id="craft-artifact">前往熔炉炼制</button>
@@ -441,7 +462,7 @@
           </header>
           <div class="reincarnation-body">
             <div class="reincarnation-orb">轮</div>
-            <p class="reincarnation-desc">轮回会清空当前等级、全部装备、背包与金币；金币按 10000:1 折算为轮回石。技能、法宝、称号、时装与材料保留，妖王变强。</p>
+            <p class="reincarnation-desc">轮回会清空等级、装备、背包、金币与悟道精魄，并重置全部技能等级与技能栏；金币按 10000:1、悟道精魄按 10:1 折算为轮回石。称号、时装、法宝、材料与觉醒前世强化永久保留。</p>
             <div class="reincarnation-stats" id="reincarnation-stats"></div>
             <div class="reincarnation-actions">
               <button class="pixel-button primary" id="confirm-reincarnation">确认轮回</button>
@@ -451,7 +472,66 @@
         </div>
       </section>
 
-      <!-- ===== 死亡 ===== -->
+      <!-- ===== 觉醒前世 ===== -->
+      <section class="screen modal-screen hidden" id="awaken-screen">
+        <div class="awaken-panel">
+          <header class="awaken-header">
+            <div>
+              <p class="modal-kicker">前世记忆 · 轮回馈赠</p>
+              <h2>觉醒前世</h2>
+            </div>
+            <div class="awaken-header-right">
+              <div class="resource-pill stone-pill"><span class="stone-icon">轮</span><b id="awaken-stones">0</b><span class="stone-label">轮回石</span></div>
+              <button class="icon-button close-button" id="close-awaken" aria-label="关闭觉醒面板">×</button>
+            </div>
+          </header>
+          <div class="awaken-body">
+            <p class="awaken-desc">消耗轮回石唤醒前世记忆，永久强化百分比属性：<b>1 轮回石 = 1%</b>。强化效果会一直保留，包括轮回之后。</p>
+            <div class="awaken-list" id="awaken-list"></div>
+            <div class="awaken-total" id="awaken-total">累计强化：—</div>
+          </div>
+          <footer class="awaken-footer">轮回石由轮回结算获得（战力、金币 10000:1、精魄 10:1）。</footer>
+        </div>
+      </section>
+
+      <!-- ===== 灵药淬体 ===== -->
+      <section class="screen modal-screen hidden" id="body-screen">
+        <div class="awaken-panel">
+          <header class="awaken-header">
+            <div>
+              <p class="modal-kicker">灵药入体 · 脱胎换骨</p>
+              <h2>灵药淬体</h2>
+            </div>
+            <div class="awaken-header-right">
+              <div class="resource-pill stone-pill"><span class="stone-icon">药</span><b id="body-herbs">0</b><span class="stone-label">灵药</span></div>
+              <button class="icon-button close-button" id="close-body" aria-label="关闭淬体面板">×</button>
+            </div>
+          </header>
+          <div class="awaken-body">
+            <p class="awaken-desc">小怪会掉落灵药，也可以在商店用金币购买。消耗灵药淬炼肉身，永久提升固定属性。</p>
+            <div class="awaken-list" id="body-list"></div>
+          </div>
+          <footer class="awaken-footer">气血每级 +35、攻击每级 +4、防御每级 +3，永久生效。</footer>
+        </div>
+      </section>
+
+      <!-- ===== 翅膀 ===== -->
+      <section class="screen modal-screen hidden" id="wing-screen">
+        <div class="awaken-panel">
+          <header class="awaken-header">
+            <div>
+              <p class="modal-kicker">羽翼加身 · 一飞冲天</p>
+              <h2>翅膀</h2>
+            </div>
+            <button class="icon-button close-button" id="close-wings" aria-label="关闭翅膀面板">×</button>
+          </header>
+          <div class="awaken-body">
+            <p class="awaken-desc">每三关妖王掉落一枚对应的翅膀材料，一枚材料即可制作翅膀。翅膀提升 <b>水平速度、跳跃速度</b> 与属性，并可消耗材料与金币强化。</p>
+            <div class="awaken-list wing-list" id="wing-list"></div>
+          </div>
+          <footer class="awaken-footer">翅膀共七阶：雏翼 → 浴火 → 核力制动 → 神光 → 星宇 → 太虚 → 无极。</footer>
+        </div>
+      </section>
       <section class="screen modal-screen hidden" id="death-screen">
         <div class="modal-panel death-panel">
           <p class="modal-kicker">此身虽陨 · 战意不灭</p>
@@ -477,7 +557,7 @@
             <button class="pixel-button" id="stay-button">留在本轮回</button>
             <button class="pixel-button ghost" id="victory-title-button">返回标题</button>
           </div>
-          <p class="modal-tip">轮回会清空等级、装备与金币，金币按 10000:1 折算轮回石；妖王也会变得更强。</p>
+          <p class="modal-tip">轮回会清空等级、装备、金币与精魄并重置技能；金币 10000:1、精魄 10:1 折算轮回石。</p>
         </div>
       </section>
 

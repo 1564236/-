@@ -34,6 +34,14 @@
     "atkSpeedPct", "luck", "lifesteal"
   ];
 
+  // 普攻四阶段：轻击 → 中击 → 重击 → 暴击
+  const COMBO_STAGES = [
+    { name: "轻击", mult: 1.0, dur: 0.26, range: 36, offset: 19, radius: 28, color: "#f7cc67" },
+    { name: "中击", mult: 1.22, dur: 0.28, range: 42, offset: 22, radius: 30, color: "#ffd77a" },
+    { name: "重击", mult: 1.62, dur: 0.34, range: 50, offset: 28, radius: 34, color: "#ffe8a0" },
+    { name: "暴击", mult: 2.25, dur: 0.46, range: 58, offset: 34, radius: 40, color: "#fff3c0", forceCrit: true }
+  ];
+
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
   ctx.imageSmoothingEnabled = false;
@@ -66,6 +74,8 @@
     bossTitle: document.getElementById("boss-title"),
     bossPhase: document.getElementById("boss-phase"),
     bossFill: document.getElementById("boss-fill"),
+    bossPoiseBar: document.getElementById("boss-poise-bar"),
+    bossPoiseFill: document.getElementById("boss-poise-fill"),
     waveBanner: document.getElementById("wave-banner"),
     waveTitle: document.getElementById("wave-title"),
     combo: document.getElementById("combo-display"),
@@ -97,6 +107,9 @@
     pauseShop: document.getElementById("pause-shop-button"),
     pauseStage: document.getElementById("pause-stage-button"),
     pauseReincarnation: document.getElementById("pause-reincarnation-button"),
+    pauseAwaken: document.getElementById("pause-awaken-button"),
+    pauseBody: document.getElementById("pause-body-button"),
+    pauseWing: document.getElementById("pause-wing-button"),
     enhanceStoneCount: document.getElementById("enhance-stone-count"),
     shopScreen: document.getElementById("shop-screen"),
     closeShop: document.getElementById("close-shop"),
@@ -117,6 +130,18 @@
     stageSelectGrid: document.getElementById("stage-select-grid"),
     reincarnationScreen: document.getElementById("reincarnation-screen"),
     closeReincarnation: document.getElementById("close-reincarnation"),
+    awakenScreen: document.getElementById("awaken-screen"),
+    closeAwaken: document.getElementById("close-awaken"),
+    awakenStones: document.getElementById("awaken-stones"),
+    awakenList: document.getElementById("awaken-list"),
+    awakenTotal: document.getElementById("awaken-total"),
+    bodyScreen: document.getElementById("body-screen"),
+    closeBody: document.getElementById("close-body"),
+    bodyHerbs: document.getElementById("body-herbs"),
+    bodyList: document.getElementById("body-list"),
+    wingScreen: document.getElementById("wing-screen"),
+    closeWings: document.getElementById("close-wings"),
+    wingList: document.getElementById("wing-list"),
     confirmReincarnation: document.getElementById("confirm-reincarnation"),
     cancelReincarnation: document.getElementById("cancel-reincarnation"),
     reincarnationStats: document.getElementById("reincarnation-stats"),
@@ -139,6 +164,7 @@
     artifactStatus: document.getElementById("artifact-status"),
     artifactList: document.getElementById("artifact-list"),
     artifactCost: document.getElementById("artifact-cost"),
+    artifactStats: document.getElementById("artifact-stats"),
     artifactUpgradeBox: document.getElementById("artifact-upgrade-box"),
     artifactLevel: document.getElementById("artifact-level"),
     artifactUpgradeCost: document.getElementById("artifact-upgrade-cost"),
@@ -152,6 +178,9 @@
     invSkinEquip: document.getElementById("inv-skin-equip"),
     invSkinUnequip: document.getElementById("inv-skin-unequip"),
     invTitle: document.getElementById("inv-title"),
+    invWing: document.getElementById("inv-wing"),
+    invWingOpen: document.getElementById("inv-wing-open"),
+    invWingUnequip: document.getElementById("inv-wing-unequip"),
     power: document.getElementById("power-text"),
     characterPreview: document.getElementById("character-preview"),
     gearHead: document.getElementById("gear-head"),
@@ -174,6 +203,9 @@
     salvageLow: document.getElementById("salvage-low"),
     salvageCommon: document.getElementById("salvage-common"),
     bagGrid: document.getElementById("bag-grid"),
+    bagPageLabel: document.getElementById("bag-page-label"),
+    bagPrev: document.getElementById("bag-prev"),
+    bagNext: document.getElementById("bag-next"),
     itemDetail: document.getElementById("item-detail"),
     skillScreen: document.getElementById("skill-screen"),
     closeSkills: document.getElementById("close-skills"),
@@ -205,7 +237,9 @@
     touch: document.getElementById("touch-controls")
   };
 
-  const INVENTORY_CAP = 12;
+  const INVENTORY_CAP = 96;
+  const BAG_PAGE_SIZE = 12;
+  let bagPage = 0;
 
   const G = {
     mode: "boot",
@@ -246,6 +280,10 @@
     enhanceStones: 2,
     reincarnationStones: 0,
     artifactMats: { purification: 0, heavenSeal: 0, chaosBell: 0, immortalSword: 0 },
+    awaken: { atkPct: 0, hpPct: 0, defPct: 0, skillPct: 0 },
+    spiritHerb: 0,
+    wingMats: {},
+    body: { hp: 0, atk: 0, def: 0 },
     maxStageUnlocked: 0,
     shopTab: "gold",
     shopStock: [],
@@ -354,6 +392,9 @@
       skinLevels: {},
       titles: ["none"],
       title: "none",
+      wings: [],
+      wing: null,
+      wingLevels: {},
       goldenT: 0,
       goldenMul: 1,
       regenT: 0,
@@ -414,7 +455,7 @@
     const l = Math.max(1, level);
     return {
       hp: 170 + (l - 1) * 25,
-      mp: 42,
+      mp: 48 + (l - 1) * 2.6,
       atk: 17 + (l - 1) * 3.8,
       def: 3 + (l - 1) * 1.1
     };
@@ -437,7 +478,18 @@
     if (!p) return;
     const base = baseStatsFor(p.level);
     const gear = itemStatsSum();
+    // 灵药淬体：固定属性成长
+    const body = G.body || {};
+    base.hp += (body.hp || 0) * 35;
+    base.atk += (body.atk || 0) * 4;
+    base.def += (body.def || 0) * 3;
     const title = D.TITLES[p.title] || D.TITLES.none;
+    // 觉醒前世：轮回石强化百分比
+    const awaken = G.awaken || {};
+    for (const [key, value] of Object.entries(awaken)) {
+      if (!value) continue;
+      gear[key] = (gear[key] || 0) + value;
+    }
     for (const [key, value] of Object.entries(title.stats || {})) {
       gear[key] = (gear[key] || 0) + value;
     }
@@ -455,14 +507,37 @@
       }
     }
     const activeArtifact = p.activeArtifact ? D.ARTIFACTS[p.activeArtifact] : null;
-    if (activeArtifact && activeArtifact.statPct) {
-      const aScale = 1 + (artifactLevel(p.activeArtifact) - 1) * 0.18;
-      for (const [key, value] of Object.entries(activeArtifact.statPct)) {
-        gear[key] = (gear[key] || 0) + value * aScale;
+    if (activeArtifact) {
+      const lv = artifactLevel(p.activeArtifact);
+      const base = activeArtifact.stats || activeArtifact.statPct;
+      if (base) {
+        for (const [key, value] of Object.entries(base)) gear[key] = (gear[key] || 0) + value;
+      }
+      if (activeArtifact.levelStats) {
+        for (let i = 1; i < lv; i++) {
+          for (const [key, value] of Object.entries(activeArtifact.levelStats)) {
+            gear[key] = (gear[key] || 0) + value;
+          }
+        }
       }
     }
     const oldHp = p.hp === undefined ? null : p.hp;
     const oldMp = p.mp === undefined ? null : p.mp;
+
+    // 翅膀：水平速度 / 跳跃速度 / 百分比属性
+    let wingJump = 0;
+    const wingDef = p.wing ? D.WINGS[p.wing] : null;
+    if (wingDef) {
+      const wl = wingLevel(p.wing);
+      const applyWing = (obj) => {
+        for (const [key, value] of Object.entries(obj || {})) {
+          if (key === "jump") wingJump += value;
+          else gear[key] = (gear[key] || 0) + value;
+        }
+      };
+      applyWing(wingDef.stats);
+      for (let i = 1; i < wl; i++) applyWing(wingDef.levelStats);
+    }
 
     p.maxHp = Math.max(1, Math.round((base.hp + gear.hp) * (1 + gear.hpPct / 100)));
     p.maxMp = Math.max(1, Math.round(base.mp + gear.mp));
@@ -497,6 +572,7 @@
       defPct: gear.defPct / 100,
       luckPct: gear.luck,
       maxPotions: 3,
+      jump: wingJump,
       power: 0
     };
     // 法相金身：攻击与防御翻倍（随强化倍率提升）
@@ -554,12 +630,12 @@
     if (!p || p.dead) return;
     p.xp += Math.max(0, Math.round(amount));
     let leveled = 0;
-    while (p.level < 40 && p.xp >= xpNeeded(p.level)) {
+    let guard = 0;
+    while (p.xp >= xpNeeded(p.level) && guard++ < 500) {
       p.xp -= xpNeeded(p.level);
       p.level++;
       leveled++;
     }
-    if (p.level >= 40) p.xp = Math.min(p.xp, xpNeeded(40));
     if (leveled > 0) {
       recalcStats({ full: true });
       Audio.sfx("levelup");
@@ -646,12 +722,12 @@
 
     if (slot === "head") {
       baseStats.def = (0.3 + ilvl * 0.09) * mult;
+      baseStats.mp = (5 + ilvl * 0.9) * mult;
       baseStats.hp = (4 + ilvl * 1.1) * mult;
-      baseStats.mp = (2.5 + ilvl * 0.45) * mult;
     } else if (slot === "body") {
       baseStats.def = (0.6 + ilvl * 0.14) * mult;
       baseStats.hp = (9 + ilvl * 2.0) * mult;
-      baseStats.mp = (3 + ilvl * 0.6) * mult;
+      baseStats.mp = (6 + ilvl * 1.2) * mult;
     } else if (slot === "legs") {
       baseStats.def = (0.4 + ilvl * 0.11) * mult;
       baseStats.hp = (6 + ilvl * 1.45) * mult;
@@ -662,7 +738,7 @@
       baseStats.atk = (2.0 + ilvl * 0.6) * mult;
     } else {
       baseStats.crit = (1.5 + ilvl * 0.22) * mult;
-      baseStats.mp = (10 + ilvl * 1.8) * mult;
+      baseStats.mp = (18 + ilvl * 3.2) * mult;
       baseStats.atk = (0.8 + ilvl * 0.1) * mult;
     }
 
@@ -676,6 +752,7 @@
       affixes: [],
       upgrade: 0,
       balanceVersion: 2,
+      lifestealNerf: true,
       flavor: D.GEAR_FLAVOR[rarity.key]
     };
 
@@ -739,6 +816,13 @@
       }
       item.balanceVersion = 2;
     }
+    // v2.9：吸血词条全局减半（旧存档一次性迁移）
+    if (!item.lifestealNerf) {
+      for (const affix of item.affixes) {
+        if (affix.key === "lifesteal") affix.value = Number((affix.value * 0.5).toFixed(2));
+      }
+      item.lifestealNerf = true;
+    }
     for (const affix of item.affixes) {
       if (affix.special === undefined) {
         const def = D.AFFIXES.find((a) => a.key === affix.key);
@@ -785,6 +869,7 @@
       ensureBagSpace();
       p.inventory.push(item);
     }
+    if (p.inventory.length) bagPage = Math.floor((p.inventory.length - 1) / BAG_PAGE_SIZE);
 
     Audio.sfx("loot", item.rarity);
     showLootFeed(item, tag);
@@ -822,6 +907,7 @@
     }
     p.equip[slot] = null;
     p.inventory.push(item);
+    bagPage = Math.floor((p.inventory.length - 1) / BAG_PAGE_SIZE);
     recalcStats();
     Audio.sfx("equip");
     G.selection = { type: "bag", id: item.id };
@@ -987,12 +1073,19 @@
       enhanceStones: G.enhanceStones,
       reincarnationStones: G.reincarnationStones,
       artifactMats: G.artifactMats,
+      awaken: G.awaken,
+      spiritHerb: G.spiritHerb,
+      wingMats: G.wingMats,
+      body: G.body,
       maxStageUnlocked: G.maxStageUnlocked,
       artifacts: p.artifacts,
       activeArtifact: p.activeArtifact,
       artifactLevels: p.artifactLevels,
       skins: p.skins,
       skin: p.skin,
+      wings: p.wings,
+      wing: p.wing,
+      wingLevels: p.wingLevels,
       skinBag: p.skinBag,
       skinLevels: p.skinLevels,
       titles: p.titles,
@@ -1074,6 +1167,26 @@
       0,
       D.STAGES.length - 1
     );
+    const aw = data.awaken && typeof data.awaken === "object" ? data.awaken : {};
+    G.awaken = {
+      atkPct: Math.max(0, Number(aw.atkPct) || 0),
+      hpPct: Math.max(0, Number(aw.hpPct) || 0),
+      defPct: Math.max(0, Number(aw.defPct) || 0),
+      skillPct: Math.max(0, Number(aw.skillPct) || 0)
+    };
+    G.spiritHerb = Math.max(0, Number(data.spiritHerb) || 0);
+    G.wingMats = data.wingMats && typeof data.wingMats === "object" ? data.wingMats : {};
+    for (const key of Object.keys(D.MATERIALS)) {
+      if (key.startsWith("wing") || key.endsWith("Feather") || key === "flamePlume" || key === "coreThruster" || key === "holyLight" || key === "starDust") {
+        G.wingMats[key] = Math.max(0, Number(G.wingMats[key]) || 0);
+      }
+    }
+    const bd = data.body && typeof data.body === "object" ? data.body : {};
+    G.body = {
+      hp: Math.max(0, Number(bd.hp) || 0),
+      atk: Math.max(0, Number(bd.atk) || 0),
+      def: Math.max(0, Number(bd.def) || 0)
+    };
     G.clone = null;
     G.totalKills = Math.max(0, Number(data.totalKills) || 0);
     G.killCount = Math.max(0, Number(data.killCount) || 0);
@@ -1081,7 +1194,7 @@
     G.muted = !!data.muted;
 
     const p = makePlayer();
-    p.level = clamp(Number(data.level) || 1, 1, 40);
+    p.level = Math.max(1, Math.floor(Number(data.level) || 1));
     p.xp = Math.max(0, Number(data.xp) || 0);
     p.skillSlots = normalizeSkillSlots(data.skillSlots);
     p.skillLevels = normalizeSkillLevels(data.skillLevels);
@@ -1105,6 +1218,10 @@
     p.titles = Array.isArray(data.titles) ? data.titles.filter((id) => D.TITLES[id]) : ["none"];
     if (!p.titles.includes("none")) p.titles.unshift("none");
     p.title = p.titles.includes(data.title) ? data.title : "none";
+    p.wings = Array.isArray(data.wings) ? data.wings.filter((id) => D.WINGS[id]) : [];
+    p.wing = p.wings.includes(data.wing) ? data.wing : p.wings[p.wings.length - 1] || null;
+    p.wingLevels = data.wingLevels && typeof data.wingLevels === "object" ? data.wingLevels : {};
+    for (const id of p.wings) if (!p.wingLevels[id]) p.wingLevels[id] = 1;
     p.equip = { head: null, body: null, legs: null, shoes: null, weapon: null, accessory: null };
 
     // v1 save migration: armor -> body, charm -> accessory
@@ -1217,13 +1334,13 @@
     const hpPct = clamp((p.hp / p.maxHp) * 100, 0, 100);
     const mpPct = clamp((p.mp / p.maxMp) * 100, 0, 100);
     const need = xpNeeded(p.level);
-    const xpPct = p.level >= 40 ? 100 : clamp((p.xp / need) * 100, 0, 100);
+    const xpPct = clamp((p.xp / need) * 100, 0, 100);
     setStyle(dom.hpFill, "width", `${hpPct}%`);
     setStyle(dom.mpFill, "width", `${mpPct}%`);
     setStyle(dom.xpFill, "width", `${xpPct}%`);
     setText(dom.hpText, `${Math.ceil(p.hp)} / ${Math.ceil(p.maxHp)}`);
     setText(dom.mpText, `${Math.ceil(p.mp)} / ${Math.ceil(p.maxMp)}`);
-    setText(dom.xpText, p.level >= 40 ? "已臻化境" : `${Math.floor(p.xp)} / ${need}`);
+    setText(dom.xpText, `${Math.floor(p.xp)} / ${need}`);
     setText(dom.level, p.level);
     setText(dom.gold, G.gold);
     setText(dom.invGold, G.gold);
@@ -1279,6 +1396,13 @@
             : G.boss.title || "妖王"
       );
       setStyle(dom.bossFill, "width", `${clamp((G.boss.hp / G.boss.maxHp) * 100, 0, 100)}%`);
+      if (dom.bossPoiseBar && dom.bossPoiseFill && G.boss.maxPoise > 0) {
+        dom.bossPoiseBar.classList.remove("hidden");
+        dom.bossPoiseBar.classList.toggle("broken", !!G.boss.poiseBroken);
+        setStyle(dom.bossPoiseFill, "width", `${clamp((G.boss.poise / G.boss.maxPoise) * 100, 0, 100)}%`);
+      } else if (dom.bossPoiseBar) {
+        dom.bossPoiseBar.classList.add("hidden");
+      }
     } else {
       hide(dom.bossPanel);
     }
@@ -1433,6 +1557,11 @@
       if (dom.invSkinUnequip) dom.invSkinUnequip.disabled = p.skin === "default";
     }
     if (dom.invTitle) setText(dom.invTitle, D.TITLES[p.title] && p.title !== "none" ? D.TITLES[p.title].name : "无称号");
+    if (dom.invWing) {
+      const wDef = p.wing ? D.WINGS[p.wing] : null;
+      setText(dom.invWing, wDef ? `${wDef.name} +${wingLevel(p.wing)}` : "无");
+      if (dom.invWingUnequip) dom.invWingUnequip.disabled = !p.wing;
+    }
     for (const slot of SLOT_ORDER) renderGearSlot(slot);
 
     const stats = [
@@ -1466,10 +1595,16 @@
         : '<span class="special-chip" style="opacity:.45">暂无</span>');
 
     setText(dom.bagCapacity, `${p.inventory.length} / ${INVENTORY_CAP}`);
+    const totalPages = Math.max(1, Math.ceil(p.inventory.length / BAG_PAGE_SIZE));
+    bagPage = clamp(bagPage, 0, totalPages - 1);
+    const pageItems = p.inventory.slice(bagPage * BAG_PAGE_SIZE, (bagPage + 1) * BAG_PAGE_SIZE);
+    setText(dom.bagPageLabel, `${bagPage + 1} / ${totalPages}`);
+    if (dom.bagPrev) dom.bagPrev.disabled = bagPage <= 0;
+    if (dom.bagNext) dom.bagNext.disabled = bagPage >= totalPages - 1;
     if (!p.inventory.length) {
       dom.bagGrid.innerHTML = `<div class="bag-empty">行囊空空如也<br />击败妖怪，装备会掉落于此</div>`;
     } else {
-      dom.bagGrid.innerHTML = p.inventory
+      dom.bagGrid.innerHTML = pageItems
         .map((item) => {
           const rarity = getRarity(item.rarity);
           const selected = G.selection && G.selection.type === "bag" && G.selection.id === item.id;
@@ -1723,6 +1858,7 @@
     setText(dom.artifactName, def.name);
     setText(dom.artifactTag, def.tag);
     setText(dom.artifactDesc, def.desc);
+    if (dom.artifactStats) setText(dom.artifactStats, artifactStatsText(id));
     setText(dom.artifactCost, artifactCostText(id));
     dom.craftArtifact.classList.toggle("hidden", owned || !!def.shopOnly);
     dom.craftArtifact.disabled = false;
@@ -1789,6 +1925,63 @@
     return Math.max(1, (p.artifactLevels && p.artifactLevels[id]) || 1);
   }
 
+  const WING_MAX_LEVEL = 10;
+
+  function wingLevel(id) {
+    const p = G.player;
+    if (!p || !id) return 1;
+    return Math.max(1, (p.wingLevels && p.wingLevels[id]) || 1);
+  }
+
+  function wingOwned(id) {
+    const p = G.player;
+    return !!(p && p.wings.includes(id));
+  }
+
+  function wingMaterialCount(id) {
+    const def = D.WINGS[id];
+    if (!def) return 0;
+    return Math.max(0, (G.wingMats && G.wingMats[def.mat]) || 0);
+  }
+
+  function wingUpgradeInfo(id) {
+    const def = D.WINGS[id];
+    if (!def) return null;
+    const level = wingLevel(id);
+    const maxed = level >= WING_MAX_LEVEL;
+    return {
+      level,
+      maxed,
+      maxLevel: WING_MAX_LEVEL,
+      mat: def.mat,
+      matName: D.MATERIALS[def.mat] ? D.MATERIALS[def.mat].name : def.mat,
+      matCost: 1 + Math.floor(level / 2),
+      goldCost: Math.round(260 + level * 200)
+    };
+  }
+
+  function wingStatsText(id) {
+    const def = D.WINGS[id];
+    if (!def) return "";
+    const lv = wingLevel(id);
+    const total = {};
+    let jump = 0;
+    const add = (obj) => {
+      for (const [key, value] of Object.entries(obj || {})) {
+        if (key === "jump") jump += value;
+        else total[key] = (total[key] || 0) + value;
+      }
+    };
+    add(def.stats);
+    for (let i = 1; i < lv; i++) add(def.levelStats);
+    const parts = Object.entries(total).map(([key, value]) => {
+      if (key === "speed") return `水平速度 +${value.toFixed(0)}`;
+      return `${D.STAT_PREFIX[key] || key} +${Number(value).toFixed(1)}%`;
+    });
+    if (jump) parts.push(`跳跃速度 +${jump.toFixed(0)}`);
+    return parts.join(" · ");
+  }
+
   function artifactScale(id) {
     return 1 + (artifactLevel(id) - 1) * 0.18;
   }
@@ -1796,6 +1989,22 @@
   function artifactCooldown(def) {
     const lv = artifactLevel(def.id);
     return Math.max(5, def.cooldown * Math.max(0.5, 1 - (lv - 1) * 0.045));
+  }
+
+  function artifactStatsText(id) {
+    const def = D.ARTIFACTS[id];
+    if (!def) return "属性加成：—";
+    const lv = artifactLevel(id);
+    const total = {};
+    const base = def.stats || def.statPct;
+    if (base) for (const [k, v] of Object.entries(base)) total[k] = (total[k] || 0) + v;
+    if (def.levelStats) {
+      for (let i = 1; i < lv; i++) {
+        for (const [k, v] of Object.entries(def.levelStats)) total[k] = (total[k] || 0) + v;
+      }
+    }
+    const parts = Object.entries(total).map(([k, v]) => `${D.STAT_PREFIX[k] || k} +${Number(v).toFixed(1)}%`);
+    return `属性加成（+${lv}）：${parts.length ? parts.join(" · ") : "—"}`;
   }
 
   function artifactUpgradeInfo(id) {
@@ -1880,7 +2089,10 @@
       for (const e of G.enemies) {
         if (e.dead) continue;
         if (Math.hypot(e.x - p.x, e.y - e.h / 2 - (p.y - 16)) > radius + e.w / 2) continue;
-        e.stunT = Math.max(e.stunT || 0, def.duration * scale);
+        let stunDur = def.duration * scale;
+        // 韧性未破：控制时间大幅缩短；破韧：控制时间延长
+        if (e.boss && e.maxPoise > 0) stunDur *= e.poiseBroken ? 1.6 : 0.3;
+        e.stunT = Math.max(e.stunT || 0, stunDur);
         if (def.damagePct) damageEnemy(e, p.stats.atk * def.damagePct * scale, { source: "artifact" });
         addEffect({ kind: "hit", x: e.x, y: e.y - e.h * 0.55, duration: 0.25, seed: rand(0, 6) });
       }
@@ -1956,6 +2168,7 @@
     addMaterial("enhanceStone", 2, 90 + stage * 20);
     addMaterial("essence", 1, 140 + stage * 28);
     addMaterial("treasureJade", 1, 110 + stage * 24);
+    addMaterial("spiritHerb", 2, 110 + stage * 20);
     if (stage >= 2) addMaterial("purification", 1, 360 + stage * 36);
     if (stage >= 5) addMaterial("heavenSeal", 1, 520 + stage * 44);
     if (stage >= 8) addMaterial("chaosBell", 1, 720 + stage * 52);
@@ -2056,12 +2269,19 @@
         const title = D.TITLES[id];
         const owned = p.titles.includes(id);
         const active = p.title === id;
+        const condMet = checkTitleCond(title.cond);
+        let titleActions;
+        if (owned) {
+          titleActions = `<button class="tiny-button gold" data-title-equip="${id}" ${active ? "disabled" : ""}>${active ? "已佩戴" : "佩戴"}</button>`;
+        } else if (title.cond) {
+          titleActions = `<em>条件：${title.cond.desc}</em><button class="tiny-button gold" data-title-claim="${id}" ${condMet ? "" : "disabled"}>${condMet ? "领取" : "未达成"}</button>`;
+        } else {
+          titleActions = `<em>${title.costStones} 轮回石</em><button class="tiny-button gold" data-title-buy="${id}" ${G.reincarnationStones < title.costStones ? "disabled" : ""}>购买</button>`;
+        }
         return `<div class="shop-card title-card ${active ? "selected" : ""}">
           <div class="shop-card-icon title" style="--card-color:#e6c35a">${title.icon}</div>
           <div class="shop-card-main"><b>${title.name}</b><span>${title.desc}</span></div>
-          <div class="shop-card-buy">
-            ${owned ? `<button class="tiny-button gold" data-title-equip="${id}" ${active ? "disabled" : ""}>${active ? "已佩戴" : "佩戴"}</button>` : `<em>${title.costStones} 轮回石</em><button class="tiny-button gold" data-title-buy="${id}" ${G.reincarnationStones < title.costStones ? "disabled" : ""}>购买</button>`}
-          </div>
+          <div class="shop-card-buy">${titleActions}</div>
         </div>`;
       }).join("");
     }
@@ -2080,6 +2300,7 @@
       if (offer.key === "enhanceStone") G.enhanceStones += offer.amount;
       else if (offer.key === "essence") G.essence += offer.amount;
       else if (offer.key === "treasureJade") G.treasureJade += offer.amount;
+      else if (offer.key === "spiritHerb") G.spiritHerb = (G.spiritHerb || 0) + offer.amount;
       else G.artifactMats[offer.key] = (G.artifactMats[offer.key] || 0) + offer.amount;
       showToast(`购买 ${offer.name}`, `获得 ${offer.amount} 份`);
     } else {
@@ -2215,6 +2436,42 @@
     renderShop();
     updateHUD();
     renderInventory();
+    markSave();
+  }
+
+  function checkTitleCond(cond) {
+    if (!cond) return true;
+    const p = G.player;
+    switch (cond.type) {
+      case "stage": return G.maxStageUnlocked >= cond.value;
+      case "loop": return G.loop >= cond.value;
+      case "kills": return (G.totalKills || 0) >= cond.value;
+      case "body": {
+        const b = G.body || {};
+        return (b.hp || 0) + (b.atk || 0) + (b.def || 0) >= cond.value;
+      }
+      case "wing": return !!(p && p.wings.includes(cond.value));
+      case "artifacts": return !!(p && p.artifacts.length >= cond.value);
+      default: return false;
+    }
+  }
+
+  function claimTitle(id) {
+    const title = D.TITLES[id];
+    const p = G.player;
+    if (!title || !p || p.titles.includes(id)) return;
+    if (!checkTitleCond(title.cond)) {
+      showToast("条件未达成", title.cond ? title.cond.desc : "");
+      Audio.sfx("error");
+      return;
+    }
+    p.titles.push(id);
+    p.title = id;
+    recalcStats();
+    showToast(`获得称号 · ${title.name}`, "达成条件，永久获得");
+    Audio.sfx("levelup");
+    renderShop();
+    updateHUD();
     markSave();
   }
 
@@ -2447,20 +2704,26 @@
     return Math.floor(Math.max(0, G.gold) / 10000);
   }
 
+  function essenceConversionStones() {
+    return Math.floor(Math.max(0, G.essence) / 10);
+  }
+
   function renderReincarnation() {
     const p = G.player;
     if (!p) return;
     const reward = reincarnationReward();
     const goldReward = goldConversionStones();
+    const essenceReward = essenceConversionStones();
     dom.reincarnationStats.innerHTML = `
       <div><span>当前战力</span><b>${p.stats.power}</b></div>
       <div><span>当前轮回</span><b>${G.loop + 1}</b></div>
       <div><span>战力结算</span><b>+${reward} 轮回石</b></div>
       <div><span>金币结算</span><b>${G.gold} → +${goldReward} 轮回石</b></div>
-      <div><span>合计获得</span><b>+${reward + goldReward} 轮回石</b></div>
+      <div><span>精魄结算</span><b>${G.essence} → +${essenceReward} 轮回石</b></div>
+      <div><span>合计获得</span><b>+${reward + goldReward + essenceReward} 轮回石</b></div>
       <div><span>现有轮回石</span><b>${G.reincarnationStones}</b></div>
     `;
-    dom.confirmReincarnation.textContent = `确认轮回 · +${reward + goldReward} 轮回石`;
+    dom.confirmReincarnation.textContent = `确认轮回 · +${reward + goldReward + essenceReward} 轮回石`;
   }
 
   function openReincarnation() {
@@ -2507,9 +2770,15 @@
     if (!p) return;
     const powerReward = reincarnationReward();
     const goldReward = goldConversionStones();
-    const reward = powerReward + goldReward;
+    const essenceReward = essenceConversionStones();
+    const reward = powerReward + goldReward + essenceReward;
     G.reincarnationStones += reward;
     G.gold = 0;
+    G.essence = 0;
+    // 轮回重置技能：等级归 1，技能栏回到默认
+    for (const id of Object.keys(p.skillLevels)) p.skillLevels[id] = 1;
+    p.skillSlots = D.DEFAULT_SKILL_SLOTS.slice();
+    p.skill.active = false;
     G.loop++;
     G.stageIndex = 0;
     G.portalActive = false;
@@ -2530,7 +2799,7 @@
     setTouchVisible(true);
     Audio.setPaused(false);
     loadStage(0, { transition: true });
-    showToast("轮回成功", `等级、装备、背包与金币已清空 · 战力 +${powerReward}、金币 +${goldReward}，共 ${reward} 枚轮回石`);
+    showToast("轮回成功", `等级、装备、背包、金币与精魄已清空，技能已重置 · 战力 +${powerReward}、金币 +${goldReward}、精魄 +${essenceReward}，共 ${reward} 枚轮回石`);
     Audio.sfx("gong");
     writeSave();
   }
@@ -2538,6 +2807,291 @@
   /* ------------------------------------------------------------------ */
   /* Screens and flow                                                    */
   /* ------------------------------------------------------------------ */
+
+  const AWAKEN_KEYS = [
+    { key: "atkPct", name: "攻击强化" },
+    { key: "hpPct", name: "生命强化" },
+    { key: "defPct", name: "防御强化" },
+    { key: "skillPct", name: "技能增伤强化" }
+  ];
+
+  function openAwaken(fromPause) {
+    if (!G.player) return;
+    if (!(G.mode === "playing" || G.mode === "paused")) return;
+    G.returnMode = fromPause || G.mode === "paused" ? "paused" : "playing";
+    hide(dom.pauseScreen);
+    hide(dom.interactPrompt);
+    G.mode = "awaken";
+    setTouchVisible(false);
+    show(dom.awakenScreen);
+    Audio.setPaused(true);
+    renderAwaken();
+    Audio.sfx("ui");
+  }
+
+  function closeAwaken() {
+    if (G.mode !== "awaken") return;
+    hide(dom.awakenScreen);
+    if (G.returnMode === "paused") {
+      G.mode = "paused";
+      show(dom.pauseScreen);
+      fillPauseSummary();
+      Audio.setPaused(true);
+      setTouchVisible(false);
+    } else {
+      G.mode = "playing";
+      setTouchVisible(true);
+      Audio.setPaused(false);
+      lastFrame = performance.now();
+    }
+    updateHUD();
+    Audio.sfx("ui");
+  }
+
+  function renderAwaken() {
+    if (!G.player) return;
+    setText(dom.awakenStones, G.reincarnationStones);
+    dom.awakenList.innerHTML = AWAKEN_KEYS.map(({ key, name }) => {
+      const cur = G.awaken[key] || 0;
+      return `<div class="awaken-row">
+        <span class="awaken-row-name">${name}</span>
+        <span class="awaken-row-val">+${Number(cur).toFixed(0)}%</span>
+        <button class="tiny-button gold" data-awaken-key="${key}" data-awaken-amount="1" ${G.reincarnationStones < 1 ? "disabled" : ""}>+1% · 1石</button>
+        <button class="tiny-button gold" data-awaken-key="${key}" data-awaken-amount="5" ${G.reincarnationStones < 5 ? "disabled" : ""}>+5% · 5石</button>
+      </div>`;
+    }).join("");
+    const total = AWAKEN_KEYS.reduce((sum, k) => sum + (G.awaken[k.key] || 0), 0);
+    setText(dom.awakenTotal, `累计强化：${total.toFixed(0)}%（1 轮回石 = 1%），轮回后依然保留`);
+  }
+
+  function awakenUpgrade(key, amount) {
+    const p = G.player;
+    if (!p) return;
+    if (!AWAKEN_KEYS.some((k) => k.key === key)) return;
+    const n = Math.max(1, Math.floor(amount || 1));
+    if (G.reincarnationStones < n) {
+      showToast("轮回石不足", `需要 ${n} 枚轮回石`);
+      Audio.sfx("error");
+      return;
+    }
+    G.reincarnationStones -= n;
+    G.awaken[key] = (G.awaken[key] || 0) + n;
+    recalcStats();
+    const label = (AWAKEN_KEYS.find((k) => k.key === key) || {}).name || key;
+    showToast("觉醒前世", `${label} +${n}%`);
+    Audio.sfx("levelup");
+    renderAwaken();
+    updateHUD();
+    markSave();
+  }
+
+  const BODY_KEYS = [
+    { key: "hp", name: "气血淬体", per: 35 },
+    { key: "atk", name: "攻击淬体", per: 4 },
+    { key: "def", name: "防御淬体", per: 3 }
+  ];
+
+  function bodyCost(level, amount = 1) {
+    let total = 0;
+    for (let i = 0; i < amount; i++) total += 1 + Math.floor((level + i) / 2);
+    return total;
+  }
+
+  function openBody(fromPause) {
+    if (!G.player) return;
+    if (!(G.mode === "playing" || G.mode === "paused")) return;
+    G.returnMode = fromPause || G.mode === "paused" ? "paused" : "playing";
+    hide(dom.pauseScreen);
+    hide(dom.interactPrompt);
+    G.mode = "body";
+    setTouchVisible(false);
+    show(dom.bodyScreen);
+    Audio.setPaused(true);
+    renderBody();
+    Audio.sfx("ui");
+  }
+
+  function closeBody() {
+    if (G.mode !== "body") return;
+    hide(dom.bodyScreen);
+    if (G.returnMode === "paused") {
+      G.mode = "paused";
+      show(dom.pauseScreen);
+      fillPauseSummary();
+      Audio.setPaused(true);
+      setTouchVisible(false);
+    } else {
+      G.mode = "playing";
+      setTouchVisible(true);
+      Audio.setPaused(false);
+      lastFrame = performance.now();
+    }
+    updateHUD();
+    Audio.sfx("ui");
+  }
+
+  function renderBody() {
+    if (!G.player) return;
+    setText(dom.bodyHerbs, G.spiritHerb || 0);
+    dom.bodyList.innerHTML = BODY_KEYS.map(({ key, name, per }) => {
+      const lv = (G.body && G.body[key]) || 0;
+      const cost1 = bodyCost(lv, 1);
+      const cost5 = bodyCost(lv, 5);
+      return `<div class="awaken-row">
+        <span class="awaken-row-name">${name} Lv.${lv}</span>
+        <span class="awaken-row-val">+${lv * per}</span>
+        <button class="tiny-button gold" data-body-key="${key}" data-body-amount="1" ${(G.spiritHerb || 0) < cost1 ? "disabled" : ""}>+1 · ${cost1}药</button>
+        <button class="tiny-button gold" data-body-key="${key}" data-body-amount="5" ${(G.spiritHerb || 0) < cost5 ? "disabled" : ""}>+5 · ${cost5}药</button>
+      </div>`;
+    }).join("");
+  }
+
+  function bodyUpgrade(key, amount) {
+    if (!BODY_KEYS.some((k) => k.key === key)) return;
+    const n = Math.max(1, Math.floor(amount || 1));
+    const lv = (G.body && G.body[key]) || 0;
+    const cost = bodyCost(lv, n);
+    if ((G.spiritHerb || 0) < cost) {
+      showToast("灵药不足", `需要 ${cost} 株灵药`);
+      Audio.sfx("error");
+      return;
+    }
+    G.spiritHerb -= cost;
+    G.body[key] = lv + n;
+    recalcStats();
+    const label = (BODY_KEYS.find((k) => k.key === key) || {}).name || key;
+    showToast("灵药淬体", `${label} +${n} 级`);
+    Audio.sfx("levelup");
+    renderBody();
+    updateHUD();
+    markSave();
+  }
+
+  function openWings(fromPause) {
+    if (!G.player) return;
+    if (!(G.mode === "playing" || G.mode === "paused")) return;
+    G.returnMode = fromPause || G.mode === "paused" ? "paused" : "playing";
+    hide(dom.pauseScreen);
+    hide(dom.interactPrompt);
+    G.mode = "wings";
+    setTouchVisible(false);
+    show(dom.wingScreen);
+    Audio.setPaused(true);
+    renderWings();
+    Audio.sfx("ui");
+  }
+
+  function closeWings() {
+    if (G.mode !== "wings") return;
+    hide(dom.wingScreen);
+    if (G.returnMode === "paused") {
+      G.mode = "paused";
+      show(dom.pauseScreen);
+      fillPauseSummary();
+      Audio.setPaused(true);
+      setTouchVisible(false);
+    } else {
+      G.mode = "playing";
+      setTouchVisible(true);
+      Audio.setPaused(false);
+      lastFrame = performance.now();
+    }
+    updateHUD();
+    Audio.sfx("ui");
+  }
+
+  function renderWings() {
+    const p = G.player;
+    if (!p) return;
+    dom.wingList.innerHTML = D.WING_ORDER.map((id) => {
+      const def = D.WINGS[id];
+      const owned = p.wings.includes(id);
+      const active = p.wing === id;
+      const mats = wingMaterialCount(id);
+      const info = wingUpgradeInfo(id);
+      const matName = D.MATERIALS[def.mat] ? D.MATERIALS[def.mat].name : def.mat;
+      let actions = "";
+      if (!owned) {
+        actions = `<em>${matName} ×1（持有 ${mats}）</em><button class="tiny-button gold" data-wing-craft="${id}" ${mats < 1 ? "disabled" : ""}>制作</button>`;
+      } else {
+        actions = `<button class="tiny-button gold" data-wing-equip="${active ? "none" : id}">${active ? "卸下" : "装备"}</button>`;
+        if (!info.maxed) {
+          actions += `<button class="tiny-button gold" data-wing-upgrade="${id}" ${mats < info.matCost || G.gold < info.goldCost ? "disabled" : ""}>强化 +${info.level + 1}（${info.matCost}${matName}·${info.goldCost}金）</button>`;
+        } else {
+          actions += `<em>已满级 +${info.maxLevel}</em>`;
+        }
+      }
+      return `<div class="shop-card title-card ${active ? "selected" : ""}">
+        <div class="shop-card-icon wing" style="--card-color:${def.color}">${def.icon}</div>
+        <div class="shop-card-main">
+          <b>${def.name}${owned ? ` +${wingLevel(id)}` : ""}</b>
+          <span>${def.desc}</span>
+          <span class="skin-meta">${owned ? wingStatsText(id) : `材料：${matName} ×1（持有 ${mats}）`}</span>
+        </div>
+        <div class="shop-card-buy">${actions}</div>
+      </div>`;
+    }).join("");
+  }
+
+  function craftWing(id) {
+    const p = G.player;
+    const def = D.WINGS[id];
+    if (!p || !def || p.wings.includes(id)) return;
+    if (wingMaterialCount(id) < 1) {
+      showToast("材料不足", `需要 1 枚${D.MATERIALS[def.mat] ? D.MATERIALS[def.mat].name : def.mat}`);
+      Audio.sfx("error");
+      return;
+    }
+    G.wingMats[def.mat] -= 1;
+    p.wings.push(id);
+    p.wingLevels[id] = 1;
+    p.wing = id;
+    recalcStats();
+    showToast(`获得翅膀 · ${def.name}`, "已自动装备");
+    Audio.sfx("levelup");
+    renderWings();
+    updateHUD();
+    markSave();
+  }
+
+  function equipWing(id) {
+    const p = G.player;
+    if (!p) return;
+    if (id !== "none" && !p.wings.includes(id)) return;
+    p.wing = id === "none" ? null : id;
+    recalcStats();
+    showToast(p.wing ? `装备翅膀 · ${D.WINGS[p.wing].name}` : "已卸下翅膀", "速度与属性已更新");
+    Audio.sfx("equip");
+    renderWings();
+    updateHUD();
+    markSave();
+  }
+
+  function upgradeWing(id) {
+    const p = G.player;
+    const def = D.WINGS[id];
+    const info = wingUpgradeInfo(id);
+    if (!p || !def || !info || !p.wings.includes(id)) return;
+    if (info.maxed) {
+      showToast("翅膀已满级", `最高 +${info.maxLevel}`);
+      Audio.sfx("error");
+      return;
+    }
+    if (wingMaterialCount(id) < info.matCost || G.gold < info.goldCost) {
+      showToast("材料不足", `需要 ${info.matCost} 枚${info.matName}与 ${info.goldCost} 金币`);
+      Audio.sfx("error");
+      return;
+    }
+    G.wingMats[def.mat] -= info.matCost;
+    G.gold -= info.goldCost;
+    p.wingLevels[id] = info.level + 1;
+    recalcStats();
+    showToast(`${def.name} 强化 +${info.level + 1}`, "翅膀属性提升");
+    Audio.sfx("levelup");
+    renderWings();
+    updateHUD();
+    markSave();
+  }
 
   function hideAllScreens() {
     for (const el of [
@@ -2550,6 +3104,9 @@
       dom.forgeScreen,
       dom.stageSelectScreen,
       dom.reincarnationScreen,
+      dom.awakenScreen,
+      dom.bodyScreen,
+      dom.wingScreen,
       dom.deathScreen,
       dom.victoryScreen
     ]) {
@@ -2616,6 +3173,10 @@
     G.enhanceStones = 2;
     G.reincarnationStones = 0;
     G.artifactMats = { purification: 0, heavenSeal: 0, chaosBell: 0, immortalSword: 0 };
+    G.awaken = { atkPct: 0, hpPct: 0, defPct: 0, skillPct: 0 };
+    G.spiritHerb = 0;
+    G.wingMats = {};
+    G.body = { hp: 0, atk: 0, def: 0 };
     G.maxStageUnlocked = 0;
     G.shopStock = [];
     G.shopKey = "";
@@ -2906,6 +3467,18 @@
       if (code === "Escape") closeReincarnation();
       return;
     }
+    if (G.mode === "awaken") {
+      if (code === "Escape" || code === "KeyN") closeAwaken();
+      return;
+    }
+    if (G.mode === "body") {
+      if (code === "Escape" || code === "KeyV") closeBody();
+      return;
+    }
+    if (G.mode === "wings") {
+      if (code === "Escape" || code === "KeyY") closeWings();
+      return;
+    }
     if (G.mode === "paused") {
       if (code === "Escape") togglePause();
       else if (code === "KeyC") openInventory(true);
@@ -2915,6 +3488,9 @@
       else if (code === "KeyP") openShop(true);
       else if (code === "KeyM") openStageSelect(true);
       else if (code === "KeyR") openReincarnation();
+      else if (code === "KeyN") openAwaken(true);
+      else if (code === "KeyV") openBody(true);
+      else if (code === "KeyY") openWings(true);
       return;
     }
     if (G.mode !== "playing") return;
@@ -2982,6 +3558,15 @@
         break;
       case "KeyR":
         openReincarnation();
+        break;
+      case "KeyN":
+        openAwaken(false);
+        break;
+      case "KeyV":
+        openBody(false);
+        break;
+      case "KeyY":
+        openWings(false);
         break;
       case "KeyC":
         openInventory(false);
@@ -3105,6 +3690,36 @@
     dom.pauseShop.addEventListener("click", () => openShop(true));
     dom.pauseStage.addEventListener("click", () => openStageSelect(true));
     dom.pauseReincarnation.addEventListener("click", openReincarnation);
+    if (dom.pauseAwaken) dom.pauseAwaken.addEventListener("click", () => openAwaken(true));
+    if (dom.pauseBody) dom.pauseBody.addEventListener("click", () => openBody(true));
+    if (dom.pauseWing) dom.pauseWing.addEventListener("click", () => openWings(true));
+    if (dom.closeBody) dom.closeBody.addEventListener("click", closeBody);
+    if (dom.closeWings) dom.closeWings.addEventListener("click", closeWings);
+    if (dom.bodyList) {
+      dom.bodyList.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-body-key]");
+        if (!btn) return;
+        bodyUpgrade(btn.dataset.bodyKey, Number(btn.dataset.bodyAmount) || 1);
+      });
+    }
+    if (dom.wingList) {
+      dom.wingList.addEventListener("click", (e) => {
+        const craft = e.target.closest("[data-wing-craft]");
+        if (craft) return craftWing(craft.dataset.wingCraft);
+        const equip = e.target.closest("[data-wing-equip]");
+        if (equip) return equipWing(equip.dataset.wingEquip);
+        const up = e.target.closest("[data-wing-upgrade]");
+        if (up) return upgradeWing(up.dataset.wingUpgrade);
+      });
+    }
+    if (dom.closeAwaken) dom.closeAwaken.addEventListener("click", closeAwaken);
+    if (dom.awakenList) {
+      dom.awakenList.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-awaken-key]");
+        if (!btn) return;
+        awakenUpgrade(btn.dataset.awakenKey, Number(btn.dataset.awakenAmount) || 1);
+      });
+    }
     dom.closeInventory.addEventListener("click", closeInventory);
     if (dom.invSkinEquip) {
       dom.invSkinEquip.addEventListener("click", () => {
@@ -3115,6 +3730,14 @@
       });
     }
     if (dom.invSkinUnequip) dom.invSkinUnequip.addEventListener("click", () => equipSkin("default"));
+    if (dom.invWingOpen) {
+      dom.invWingOpen.addEventListener("click", () => {
+        const fromPause = G.returnMode === "paused" || G.mode === "paused";
+        closeInventory();
+        openWings(fromPause);
+      });
+    }
+    if (dom.invWingUnequip) dom.invWingUnequip.addEventListener("click", () => equipWing("none"));
     dom.closeSkills.addEventListener("click", closeSkills);
     dom.closeArtifacts.addEventListener("click", closeArtifacts);
     dom.closeShop.addEventListener("click", closeShop);
@@ -3176,6 +3799,11 @@
         buyTitle(titleBuy.dataset.titleBuy);
         return;
       }
+      const titleClaim = e.target.closest("[data-title-claim]");
+      if (titleClaim) {
+        claimTitle(titleClaim.dataset.titleClaim);
+        return;
+      }
       const titleEquip = e.target.closest("[data-title-equip]");
       if (titleEquip) equipTitle(titleEquip.dataset.titleEquip);
     });
@@ -3199,6 +3827,8 @@
     });
     dom.autoEquip.addEventListener("click", autoEquipBest);
     dom.salvageLow.addEventListener("click", salvageBelowEquipped);
+    if (dom.bagPrev) dom.bagPrev.addEventListener("click", () => { bagPage = Math.max(0, bagPage - 1); renderInventory(); Audio.sfx("ui"); });
+    if (dom.bagNext) dom.bagNext.addEventListener("click", () => { bagPage += 1; renderInventory(); Audio.sfx("ui"); });
     dom.salvageCommon.addEventListener("click", salvageCommon);
     dom.revive.addEventListener("click", reviveAtStage);
     dom.deathTitle.addEventListener("click", enterTitle);
@@ -3413,11 +4043,11 @@
   function spawnEnemy(type, x, y, opts = {}) {
     const def = D.ENEMIES[type];
     if (!def) return null;
-    const stageFactor = 1 + G.loop * 0.58 + G.stageIndex * 0.13;
+    const stageFactor = (1 + G.loop * 0.6) * Math.pow(1.12, G.stageIndex);
     const elite = !!opts.elite;
-    const monsterBuff = 1.5;
+    const monsterBuff = 3.0;
     const hp = Math.round(def.hp * monsterBuff * stageFactor * (elite ? 1.55 : 1) * rand(0.96, 1.06));
-    const atk = def.atk * monsterBuff * (1 + G.loop * 0.36) * (1 + G.stageIndex * 0.09) * (elite ? 1.16 : 1);
+    const atk = def.atk * monsterBuff * (1 + G.loop * 0.38) * Math.pow(1.1, G.stageIndex) * (elite ? 1.16 : 1);
     const exp = Math.round(def.exp * (1 + G.loop * 0.35) * (1 + G.stageIndex * 0.07) * (elite ? 1.55 : 1));
     const gold = Math.round(def.gold * (1 + G.loop * 0.3) * (1 + G.stageIndex * 0.07) * (elite ? 2 : 1));
     const facing = G.player && G.player.x < x ? -1 : 1;
@@ -3433,7 +4063,7 @@
       hp,
       maxHp: hp,
       atk,
-      def: (def.def + G.loop * 1.8 + G.stageIndex * 0.7) * 1.5,
+      def: (def.def * Math.pow(1.09, G.stageIndex) + G.loop * 1.8) * 3,
       speed: def.speed * (1 + G.loop * 0.08) * (1 + G.stageIndex * 0.012) * (elite ? 1.06 : 1),
       exp,
       gold,
@@ -3468,7 +4098,8 @@
       burnDps: 0,
       burnTick: 0,
       burnMaxStacks: 0,
-      stunT: 0
+      stunT: 0,
+      enraged: false
     };
     G.enemies.push(e);
     addEffect({ kind: "rift", x, y: e.flying ? y + 10 : FLOOR, duration: 0.55, color: elite ? "#f2c95c" : "#a964d9" });
@@ -3478,10 +4109,17 @@
   function spawnBossEnemy(type, x) {
     const def = D.BOSSES[type];
     if (!def) return null;
-    const stageHp = Math.min(G.stageIndex, 9) * 0.1 + Math.max(0, G.stageIndex - 9) * 0.045;
-    const hpFactor = 1 + G.loop * 0.65 + stageHp;
-    const stageAtk = Math.min(G.stageIndex, 9) * 0.065 + Math.max(0, G.stageIndex - 9) * 0.03;
-    const hp = Math.round(def.hp * 1.5 * hpFactor);
+    const hpFactor = (1 + G.loop * 0.72) * Math.pow(1.1, G.stageIndex);
+    const atkScale = (1 + G.loop * 0.44) * Math.pow(1.085, G.stageIndex);
+    const hp = Math.round(def.hp * 3 * hpFactor);
+    // 每五关妖王额外获得一个专属神通（上限 3 个）
+    const stageNo = G.stageIndex + 1;
+    const extraDivine = stageNo % 5 === 0 && def.extraDivine ? def.extraDivine : null;
+    const bossPatterns = def.patterns.slice();
+    if (extraDivine && !bossPatterns.includes(extraDivine)) bossPatterns.splice(3, 0, extraDivine);
+    const bossDivines = (def.divineSkills || []).slice();
+    if (extraDivine && bossDivines.length < 3 && !bossDivines.includes(extraDivine)) bossDivines.push(extraDivine);
+    if (bossDivines.length > 3) bossDivines.length = 3;
     const e = {
       id: `boss_${type}_${Date.now().toString(36)}`,
       type,
@@ -3494,8 +4132,8 @@
       h: def.h,
       hp,
       maxHp: hp,
-      atk: def.atk * 1.5 * (1 + G.loop * 0.4) * (1 + stageAtk),
-      def: (def.def + G.loop * 2.5 + G.stageIndex * 0.8) * 1.5,
+      atk: def.atk * 3.4 * atkScale,
+      def: (def.def * Math.pow(1.08, G.stageIndex) + G.loop * 2.5) * 3,
       speed: def.speed * (1 + G.loop * 0.09) * (1 + G.stageIndex * 0.01),
       exp: Math.round(def.exp * (1 + G.loop * 0.4)),
       gold: Math.round(def.gold * (1 + G.loop * 0.35)),
@@ -3523,9 +4161,9 @@
       flying: false,
       heavy: true,
       ranged: false,
-      patterns: def.patterns.slice(),
+      patterns: bossPatterns,
       commonSkills: (def.commonSkills || []).slice(),
-      divineSkills: (def.divineSkills || []).slice(),
+      divineSkills: bossDivines,
       patternIndex: 0,
       currentSkillName: "",
       currentSkillType: "",
@@ -3543,7 +4181,12 @@
       burnDps: 0,
       burnTick: 0,
       burnMaxStacks: 0,
-      stunT: 0
+      stunT: 0,
+      maxPoise: Math.round(hp * 0.28),
+      poise: Math.round(hp * 0.28),
+      poiseBroken: false,
+      poiseRegenRate: Math.max(1, Math.round(hp * 0.28) / 4),
+      enraged: false
     };
     G.enemies.push(e);
     G.boss = e;
@@ -3705,9 +4348,10 @@
     if (p.skill.active) return;
     if (p.dashCd > 0 || p.dashing > 0) return;
     p.dashCd = Math.max(0.25, 1.2 * (1 - p.stats.cdr * 0.2));
-    p.dashing = 0.16;
+    p.dashing = 0.26;
     p.dashDir = keys.left ? -1 : keys.right ? 1 : p.facing;
     p.facing = p.dashDir;
+    p.vy = 0;
     p.invuln = Math.max(p.invuln, 0.32);
     p.attack.active = false;
     p.dashTrail = 0;
@@ -3754,35 +4398,40 @@
     const p = G.player;
     if (!p || p.dead) return;
     let combo = forceCombo || (p.comboWindow > 0 ? (p.comboChain || 0) + 1 : 1);
-    if (combo > 3) combo = 1;
+    if (combo > 4) combo = 1;
+    const stage = COMBO_STAGES[combo - 1];
     p.attack.active = true;
     p.attack.t = 0;
     p.attack.combo = combo;
-    p.attack.dur = (combo === 3 ? 0.36 : 0.28) / Math.max(0.6, p.stats.atkSpeed);
+    p.attack.dur = stage.dur / Math.max(0.6, p.stats.atkSpeed);
     p.attack.hit = false;
     p.attack.index = combo;
     p.comboChain = combo;
     p.comboWindow = 0;
     p.attackQueue = 0;
     p.state = "attack";
-    if (p.grounded) p.vx += p.facing * 26;
+    if (p.grounded) p.vx += p.facing * (combo === 4 ? 40 : combo === 3 ? 30 : 22);
     Audio.sfx("slash");
     addEffect({
       kind: "slash",
-      x: p.x + p.facing * (combo === 3 ? 16 : 12),
+      x: p.x + p.facing * stage.offset,
       y: p.y - 16,
       facing: p.facing,
-      radius: combo === 3 ? 29 : 24,
-      duration: 0.18,
-      color: combo === 3 ? "#ffe8a0" : "#f7cc67"
+      radius: stage.radius,
+      duration: combo === 4 ? 0.24 : 0.18,
+      color: stage.color
     });
+    if (combo >= 3) {
+      addText(stage.name, p.x, p.y - 42, stage.color, combo === 4 ? 8 : 6, { life: 0.5, vy: -14 });
+    }
   }
 
   function performPlayerAttack() {
     const p = G.player;
     const combo = p.attack.combo;
-    const range = combo === 3 ? 36 : combo === 2 ? 30 : 27;
-    const centerX = p.x + p.facing * (combo === 3 ? 22 : 15);
+    const stage = COMBO_STAGES[Math.min(4, Math.max(1, combo)) - 1];
+    const range = stage.range;
+    const centerX = p.x + p.facing * stage.offset;
     const centerY = p.y - 16;
     let hitAny = false;
     let critAny = false;
@@ -3792,10 +4441,10 @@
       if (e.spawnT > 0) continue;
       const dx = Math.abs(e.x - centerX);
       const dy = Math.abs(e.y - e.h / 2 - centerY);
-      if (dx <= range + e.w / 2 && dy <= 22 + e.h / 2) {
-        const crit = Math.random() < p.stats.crit;
-        let raw = p.stats.atk * (combo === 3 ? 1.62 : combo === 2 ? 1.16 : 1.0);
-        if (crit) raw *= 1.75;
+      if (dx <= range + e.w / 2 && dy <= 28 + e.h / 2) {
+        const crit = stage.forceCrit || Math.random() < p.stats.crit;
+        let raw = p.stats.atk * stage.mult;
+        if (crit) raw *= stage.forceCrit ? 1.9 : 1.75;
         if (e.kind === "boss") raw *= 1 + p.stats.bossPct;
         raw *= rand(0.92, 1.08);
         const dmg = Math.max(1, raw - e.def * 0.55);
@@ -3832,7 +4481,7 @@
     p.rollT = Math.max(0, p.rollT - dt);
     p.dropThrough = Math.max(0, p.dropThrough - dt);
     p.comboWindow = Math.max(0, p.comboWindow - dt);
-    if (p.comboWindow <= 0) p.comboChain = 0;
+    if (p.comboWindow <= 0 && !p.attack.active) p.comboChain = 0;
     if (p.attackQueue > 0) p.attackQueue = Math.max(0, p.attackQueue - dt);
 
     if (p.dead) {
@@ -3927,7 +4576,8 @@
         p.dashTrail = 0.035;
         addEffect({ kind: "afterimage", x: p.x, y: p.y, facing: p.facing, duration: 0.24, state: "dash" });
       }
-      p.vx = p.dashDir * 315;
+      p.vx = p.dashDir * 395;
+      p.vy = 0;
       if (p.dashing <= 0) {
         p.dashing = 0;
         p.vx *= 0.25;
@@ -3955,7 +4605,7 @@
     if (inputBuffer.jump > 0 && !p.skill.active) {
       if (p.grounded || p.coyote > 0) {
         inputBuffer.jump = 0;
-        p.vy = -260;
+        p.vy = -260 - (p.stats.jump || 0);
         p.grounded = false;
         p.coyote = 0;
         p.jumpsUsed = 1;
@@ -3963,7 +4613,7 @@
         addEffect({ kind: "burst", x: p.x, y: p.y, duration: 0.3, color: "#c7d8bf", count: 6, spread: 16 });
       } else if (p.jumpsUsed < 2) {
         inputBuffer.jump = 0;
-        p.vy = -235;
+        p.vy = -235 - (p.stats.jump || 0);
         p.jumpsUsed = 2;
         p.rollT = ROLL_TIME;
         p.rollDuration = ROLL_TIME;
@@ -4030,7 +4680,11 @@
     p.x = clamp(p.x, 18, WORLD_W - 18);
 
     const prevY = p.y;
-    p.vy += 760 * dt;
+    if (p.dashing > 0) {
+      p.vy = 0; // 冲刺期间无下坠
+    } else {
+      p.vy += 760 * dt;
+    }
     p.y += p.vy * dt;
     let grounded = false;
     if (p.vy >= 0 && p.y >= FLOOR) {
@@ -4104,6 +4758,50 @@
     return dmg;
   }
 
+  function skillFlourish(kind, x, y, facing, color, level = 1, fromClone = false) {
+    const rings = kind === "ultimate" ? 3 : 2;
+    for (let r = 0; r < rings; r++) {
+      addEffect({
+        kind: "ring",
+        x,
+        y: y - 16,
+        radius: 6 + r * 4,
+        grow: 44 + level * 8 + r * 16,
+        duration: 0.4 + r * 0.12,
+        color: r ? "#fff0b8" : color
+      });
+    }
+    addEffect({ kind: "burst", x, y: y - 16, duration: 0.4, color, count: 12 + level * 2, spread: 32 + level * 5 });
+    const n = 16 + level * 4;
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, Math.PI * 2);
+      const sp = rand(40, 165);
+      addParticle({
+        x: x + Math.cos(a) * rand(2, 18),
+        y: y - 16 + Math.sin(a) * rand(2, 16),
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp - 42,
+        life: rand(0.3, 0.85),
+        size: rand(1, 3),
+        color: i % 3 === 0 ? "#fff0b8" : color,
+        gravity: 34
+      });
+    }
+    if (!fromClone) {
+      if (kind === "fireEye") {
+        addEffect({ kind: "eye", x, y: y - 32, radius: 22 + level * 4, duration: 0.5, color });
+        addEffect({ kind: "eyeBeam", x, y: y - 26, targetX: x + facing * (210 + level * 10), targetY: y - 34, facing, duration: 0.45, color });
+      } else {
+        addEffect({ kind: "hit", x, y: y - 16, duration: 0.26, seed: rand(0, 6) });
+      }
+      if (kind === "ultimate") {
+        addEffect({ kind: "rift", x, y: FLOOR, duration: 0.6, color });
+        shakeScreen(0.9, 0.4);
+        G.screenFlash = { color, alpha: 0.16, t: 0.3, duration: 0.3 };
+      }
+    }
+  }
+
   function clearProjectilesInRadius(x, y, radius) {
     for (const proj of G.projectiles) {
       if (proj.dead) continue;
@@ -4118,6 +4816,7 @@
     const p = G.player;
     const radius = 58 + level * 5;
     const color = fromClone ? "#7ce9cb" : "#ff9b45";
+    skillFlourish("fireStaff", x, y, facing, color, level, fromClone);
     for (const e of G.enemies) {
       if (e.dead || e.spawnT > 0) continue;
       const dx = e.x - x;
@@ -4147,11 +4846,12 @@
 
   function executeFireEye(x, y, facing, level, ratio = 1, fromClone = false) {
     const p = G.player;
-    const range = 220 + level * 8;
-    const baseDps = p.stats.atk * (0.14 + level * 0.04) * (1 + p.stats.skillPct) * ratio;
-    const duration = 4.5 + level * 0.45;
-    const maxStacks = 4 + level;
+    const range = 260 + level * 10;
+    const baseDps = p.stats.atk * (0.32 + level * 0.07) * (1 + p.stats.skillPct) * ratio;
+    const duration = 5.5 + level * 0.6;
+    const maxStacks = 5 + level;
     const eyeY = y - 26;
+    skillFlourish("fireEye", x, y, facing, fromClone ? "#8ff0d4" : "#ffd45e", level, fromClone);
 
     // 只锁定身前最近的敌人，不再对周身生效
     let target = null;
@@ -4228,6 +4928,7 @@
   function executeStaffSlam(x, y, facing, level, ratio = 1, fromClone = false) {
     const reach = 120 + level * 14;
     const color = fromClone ? "#8debd0" : "#ffd060";
+    skillFlourish("ultimate", x, y, facing, color, level, fromClone);
     for (const e of G.enemies) {
       if (e.dead || e.spawnT > 0) continue;
       const forward = (e.x - x) * facing;
@@ -4256,15 +4957,16 @@
   }
 
   function executeFireStormTick(x, y, facing, level, ratio = 1, fromClone = false) {
-    const radius = 54 + level * 5;
+    const radius = 64 + level * 6;
     for (const e of G.enemies) {
       if (e.dead || e.spawnT > 0) continue;
       const dx = e.x - x;
       const dy = e.y - e.h / 2 - (y - 16);
       if (dx * dx + dy * dy <= (radius + e.w * 0.5) * (radius + e.w * 0.5)) {
-        skillHit(e, 0.34 + level * 0.055, ratio, Math.sign(dx) || facing, false);
+        skillHit(e, 0.62 + level * 0.1, ratio, Math.sign(dx) || facing, false);
       }
     }
+    if (Math.random() < 0.22) skillFlourish("fireStorm", x, y, facing, "#ff6b3d", level, fromClone);
     for (let i = 0; i < 4; i++) {
       const ang = rand(0, Math.PI * 2);
       addParticle({
@@ -4288,6 +4990,7 @@
     p.goldenMul = 2 + (lv - 1) * 0.18;
     p.goldenFx = 0;
     recalcStats();
+    skillFlourish("ultimate", p.x, p.y, p.facing, "#ffd75e", lv);
     addEffect({ kind: "ring", x: p.x, y: FLOOR, radius: 10, grow: 100, duration: 0.6, color: "#ffd75e" });
     addEffect({ kind: "burst", x: p.x, y: p.y - 18, duration: 0.5, color: "#ffe9a0", count: 14, spread: 46 });
     shakeScreen(0.8, 0.32);
@@ -4336,7 +5039,7 @@
     } else if (s.id === "fireStorm") {
       s.tick -= dt;
       if (s.tick <= 0) {
-        s.tick = 0.22;
+        s.tick = 0.2;
         executeFireStormTick(p.x, p.y, p.facing, level, 1, false);
         Audio.sfx("hit");
       }
@@ -4518,7 +5221,7 @@
     enemy.burnTick -= dt;
     if (enemy.burnTick <= 0) {
       enemy.burnTick = 0.45;
-      const dmg = Math.max(1, enemy.burnDps * enemy.burnStacks * 0.45);
+      const dmg = Math.max(1, enemy.burnDps * enemy.burnStacks * 0.62);
       damageEnemy(enemy, dmg, {
         dot: true,
         dir: 0,
@@ -4739,6 +5442,24 @@
         e.vx = 0;
         applyEnemyPhysics(e, dt);
         continue;
+      }
+      // 定身结束后恢复行动，避免永久僵直
+      if (e.state === "stun") {
+        e.state = "chase";
+        e.cooldown = Math.min(e.cooldown || 0, 0.35);
+        e.hurtT = 0;
+      }
+
+      // 半血狂暴：伤害提高、防御下降、出手更快
+      if (!e.boss && !e.enraged && e.maxHp > 0 && e.hp <= e.maxHp * 0.5) {
+        e.enraged = true;
+        e.atk *= 1.35;
+        e.def *= 0.6;
+        e.windup = Math.max(0.1, e.windup * 0.72);
+        e.recover = Math.max(0.08, e.recover * 0.65);
+        e.speed *= 1.12;
+        addText("狂暴", e.x, e.y - e.h - 12, "#ff8a5a", 7, { life: 0.9, vy: -18 });
+        addEffect({ kind: "ring", x: e.x, y: FLOOR, radius: 6, grow: 46, duration: 0.45, color: "#ff6b52" });
       }
 
       if (!p || p.dead) {
@@ -4975,6 +5696,24 @@
     const dx = p.x - e.x;
     const adx = Math.abs(dx);
 
+    // 韧性回复期：无法行动，直到回满
+    if (e.maxPoise > 0 && e.poiseBroken) {
+      e.poise = Math.min(e.maxPoise, e.poise + e.poiseRegenRate * dt);
+      e.state = "broken";
+      e.vx = 0;
+      e.kx = 0;
+      e.attackT = 0;
+      applyEnemyPhysics(e, dt);
+      if (e.poise >= e.maxPoise) {
+        e.poise = e.maxPoise;
+        e.poiseBroken = false;
+        e.state = "chase";
+        e.cooldown = 0.6;
+        addText("韧性恢复", e.x, e.y - e.h - 16, "#ffe08a", 8, { life: 0.9, vy: -18 });
+      }
+      return;
+    }
+
     if (e.state === "spawn") {
       e.stateT -= dt;
       if (e.stateT <= 0) {
@@ -5008,7 +5747,7 @@
       e.attackT = 1;
       if (e.stateT <= 0) {
         e.state = "recover";
-        e.stateT = e.recover * (e.phaseTriggered ? 0.72 : 1);
+        e.stateT = e.recover * (e.phaseTriggered ? 0.45 : 0.62);
         e.attackT = 0;
       }
       return;
@@ -5065,7 +5804,7 @@
       e.stateT -= dt;
       if (e.stateT <= 0) {
         e.state = "chase";
-        e.cooldown = rand(0.9, 1.5) * (e.phaseTriggered ? 0.72 : 1);
+        e.cooldown = rand(0.45, 0.85) * (e.phaseTriggered ? 0.7 : 1);
       }
       return;
     }
@@ -5228,6 +5967,34 @@
     } else if (pattern === "flameSea") {
       duration = 0.8;
       telegraph = { shape: "circle", x: p.x, y: FLOOR, radius: 100, color: "#ff5a2b" };
+    } else if (pattern === "abyssMaw") {
+      duration = 0.8;
+      telegraph = { shape: "circle", x: p.x, y: FLOOR, radius: 92, color: "#4f6fd6" };
+    } else if (pattern === "sixEarEcho") {
+      duration = 0.62;
+      telegraph = { shape: "circle", x: e.x, y: FLOOR, radius: 120, color: "#c9a6ff" };
+    } else if (pattern === "riverDragon") {
+      duration = 0.72;
+      telegraph = {
+        shape: "line",
+        x: e.x,
+        y: e.y - 18,
+        facing: e.facing,
+        length: 420,
+        width: 58,
+        color: "#5fdfe8"
+      };
+    } else if (pattern === "endlessNight") {
+      duration = 0.86;
+      telegraph = { shape: "circle", x: p.x, y: FLOOR, radius: 120, color: "#7a2f4f" };
+    }
+
+    // v2.4：妖王出手更快、预警范围更大；狂暴后进一步加速
+    duration *= 0.78 * (e.phaseTriggered ? 0.75 : 1);
+    if (telegraph) {
+      if (telegraph.radius) telegraph.radius *= 1.32;
+      if (telegraph.length) telegraph.length *= 1.32;
+      if (telegraph.width) telegraph.width *= 1.28;
     }
 
     e.windupDuration = duration;
@@ -5270,7 +6037,7 @@
             gravity: 140
           });
         }
-        if (Math.abs(p.x - impactX) < 64 && p.y > FLOOR - 55) {
+        if (Math.abs(p.x - impactX) < 84 && p.y > FLOOR - 55) {
           hitPlayer(e.atk * 1.15, impactX, { heavy: true, launch: true });
         }
         damageCloneInArea(impactX, FLOOR, 66, e.atk * 0.85);
@@ -5362,7 +6129,7 @@
         e.attackT = 1;
         addEffect({ kind: "burst", x: oldX, y: FLOOR - 24, duration: 0.4, color: "#95e7cc", count: 16, spread: 30 });
         addEffect({ kind: "burst", x: e.x, y: FLOOR - 24, duration: 0.4, color: "#b9ffe9", count: 16, spread: 30 });
-        if (Math.abs(p.x - e.x) < 52) {
+        if (Math.abs(p.x - e.x) < 68) {
           hitPlayer(e.atk * 1.05, e.x, { heavy: true, launch: true });
         }
         damageCloneInArea(e.x, FLOOR - 24, 54, e.atk * 0.9);
@@ -5395,7 +6162,7 @@
         e.stateT = 0.55;
         e.attackT = 1;
         addEffect({ kind: "ring", x: e.x, y: FLOOR, radius: 10, grow: 145, duration: 0.7, color: "#f0c35c" });
-        if (Math.hypot(p.x - e.x, p.y - 16 - (e.y - 24)) < 140) {
+        if (Math.hypot(p.x - e.x, p.y - 16 - (e.y - 24)) < 178) {
           hitPlayer(e.atk * 1.12, e.x, { heavy: true, launch: true });
         }
         damageCloneInArea(e.x, e.y - 20, 140, e.atk * 0.9);
@@ -5434,7 +6201,7 @@
         e.attackT = 1;
         addEffect({ kind: "burst", x: oldX, y: FLOOR - 26, duration: 0.5, color: "#766b9e", count: 22, spread: 36 });
         addEffect({ kind: "burst", x: e.x, y: FLOOR - 26, duration: 0.5, color: "#a596d0", count: 22, spread: 36 });
-        if (Math.abs(p.x - e.x) < 58) {
+        if (Math.abs(p.x - e.x) < 76) {
           hitPlayer(e.atk * 1.16, e.x, { heavy: true, launch: true });
         }
         damageCloneInArea(e.x, FLOOR - 26, 58, e.atk * 0.9);
@@ -5507,6 +6274,134 @@
         addEffect({ kind: "ring", x: e.x, y: FLOOR, radius: 8, grow: 110, duration: 0.6, color: "#ff5a2b" });
         shakeScreen(0.65, 0.32);
         Audio.sfx("skill");
+        break;
+      }
+      case "abyssMaw": {
+        // 幽冥漩涡：把玩家往中心吸，四周接连爆发
+        e.state = "cast";
+        e.stateT = 0.7;
+        e.attackT = 1;
+        const pullDir = Math.sign(e.x - p.x) || 1;
+        p.kbVx = (p.kbVx || 0) + pullDir * 95;
+        p.kbT = Math.max(p.kbT || 0, 0.55);
+        for (let i = 0; i < 4; i++) {
+          const a = (i / 4) * Math.PI * 2 + G.time;
+          spawnHazard({
+            x: clamp(p.x + Math.cos(a) * 86, 40, WORLD_W - 40),
+            y: FLOOR,
+            radius: 34,
+            delay: 0.3 + i * 0.12,
+            damage: e.atk * 0.85,
+            color: "#4f6fd6",
+            kind: "flame"
+          });
+        }
+        addEffect({ kind: "ring", x: p.x, y: FLOOR, radius: 8, grow: 112, duration: 0.7, color: "#4f6fd6" });
+        shakeScreen(0.6, 0.3);
+        Audio.sfx("boss");
+        break;
+      }
+      case "sixEarEcho": {
+        // 六耳回声：扇形音波
+        e.state = "attack";
+        e.stateT = 0.5;
+        e.attackT = 1;
+        const sx = e.x;
+        const sy = e.y - 32;
+        const base = Math.atan2(p.y - 16 - sy, p.x - sx);
+        for (let i = -2; i <= 2; i++) {
+          const a = base + i * 0.22;
+          spawnEnemyProjectile({
+            type: "windBlade",
+            x: sx,
+            y: sy,
+            vx: Math.cos(a) * 190,
+            vy: Math.sin(a) * 190,
+            radius: 9,
+            damage: e.atk * 0.7,
+            life: 2.4,
+            color: "#c9a6ff"
+          });
+        }
+        for (let i = 0; i < 3; i++) {
+          addEffect({ kind: "ring", x: e.x, y: e.y - 28, radius: 6 + i * 8, grow: 60 + i * 20, duration: 0.5 + i * 0.1, color: "#c9a6ff" });
+        }
+        Audio.sfx("skill");
+        break;
+      }
+      case "riverDragon": {
+        // 翻江倒海：七道水浪 + 地面水牢
+        e.state = "attack";
+        e.stateT = 0.6;
+        e.attackT = 1;
+        const sx = e.x + e.facing * 30;
+        const sy = e.y - 20;
+        const base = Math.atan2(p.y - 16 - sy, p.x - sx);
+        for (let i = -3; i <= 3; i++) {
+          const a = base + i * 0.16;
+          spawnEnemyProjectile({
+            type: "waterSurge",
+            x: sx,
+            y: sy,
+            vx: Math.cos(a) * 235,
+            vy: Math.sin(a) * 235,
+            radius: 24,
+            damage: e.atk * 0.8,
+            life: 2.2,
+            color: "#5fdfe8",
+            playerSlow: { time: 3, mult: 0.5 }
+          });
+        }
+        spawnHazard({
+          x: clamp(p.x, 40, WORLD_W - 40),
+          y: FLOOR,
+          radius: 40,
+          delay: 0.5,
+          damage: e.atk * 0.9,
+          color: "#5fdfe8",
+          kind: "flame",
+          playerSlow: { time: 2.5, mult: 0.55 }
+        });
+        addEffect({ kind: "ring", x: e.x, y: FLOOR, radius: 10, grow: 152, duration: 0.7, color: "#5fdfe8" });
+        shakeScreen(0.65, 0.32);
+        Audio.sfx("boss");
+        break;
+      }
+      case "endlessNight": {
+        // 无边长夜：全场黑暗，连环爆发 + 追踪暗球
+        e.state = "cast";
+        e.stateT = 0.85;
+        e.attackT = 1;
+        G.screenFlash = { color: "#1a0a18", alpha: 0.38, t: 0.6, duration: 0.6 };
+        for (let i = 0; i < 5; i++) {
+          spawnHazard({
+            x: clamp(p.x + rand(-70, 70), 40, WORLD_W - 40),
+            y: FLOOR,
+            radius: 30 + i * 3,
+            delay: 0.25 + i * 0.14,
+            damage: e.atk * 0.85,
+            color: "#a03a6a",
+            kind: "bone"
+          });
+        }
+        const nsx = e.x + e.facing * 20;
+        for (let i = -1; i <= 1; i++) {
+          spawnEnemyProjectile({
+            type: "darkOrb",
+            x: nsx,
+            y: e.y - 30,
+            vx: i * 70,
+            vy: -60,
+            gravity: 40,
+            radius: 14,
+            damage: e.atk * 0.9,
+            life: 2.6,
+            color: "#a03a6a"
+          });
+        }
+        addEffect({ kind: "rift", x: p.x, y: FLOOR, duration: 0.8, color: "#7a2f4f" });
+        shakeScreen(0.9, 0.45);
+        Audio.sfx("boss");
         break;
       }
       case "fireWheel": {
@@ -5685,7 +6580,7 @@
         e.stateT = 0.55;
         e.attackT = 1;
         addEffect({ kind: "ring", x: e.x, y: FLOOR, radius: 10, grow: 170, duration: 0.7, color: "#8fcbb5" });
-        if (Math.hypot(p.x - e.x, p.y - 16 - (e.y - 24)) < 170) {
+        if (Math.hypot(p.x - e.x, p.y - 16 - (e.y - 24)) < 215) {
           hitPlayer(e.atk * 1.05, e.x, { heavy: true, launch: true });
           p.kbVx = (p.x > e.x ? 1 : -1) * 240;
         }
@@ -5726,17 +6621,51 @@
   /* Damage / death / loot                                               */
   /* ------------------------------------------------------------------ */
 
+  function breakBossPoise(e) {
+    if (!e || e.poiseBroken) return;
+    e.poise = 0;
+    e.poiseBroken = true;
+    e.poiseRegenRate = Math.max(1, e.maxPoise / 4);
+    e.state = "broken";
+    e.hurtT = 0;
+    e.vx = 0;
+    e.kx = 0;
+    e.attackT = 0;
+    showToast(`${e.name} · 韧性破裂`, "妖王陷入硬直，受到伤害提高，恢复前无法行动");
+    addText("韧性破裂", e.x, e.y - e.h - 16, "#7fe0ff", 9, { life: 1.15, vy: -22 });
+    addEffect({ kind: "ring", x: e.x, y: FLOOR, radius: 8, grow: 130, duration: 0.65, color: "#7fe0ff" });
+    G.screenFlash = { color: "#7fe0ff", alpha: 0.16, t: 0.35, duration: 0.35 };
+    Audio.sfx("boss");
+    shakeScreen(0.75, 0.36);
+  }
+
   function damageEnemy(e, rawDamage, opts = {}) {
     if (!e || e.dead) return;
     const dot = !!opts.dot;
     const crit = !!opts.crit;
-    const dmg = Math.max(1, Math.round(rawDamage * rand(0.95, 1.05)));
+    let dmg = Math.max(1, Math.round(rawDamage * rand(0.95, 1.05)));
+    // 韧性：未破时减伤，破韧后增伤
+    const hasPoise = e.boss && e.maxPoise > 0;
+    let poiseDamage = 0;
+    if (hasPoise) {
+      if (e.poiseBroken) {
+        dmg = Math.max(1, Math.round(dmg * 1.22));
+      } else {
+        dmg = Math.max(1, Math.round(dmg * 0.55));
+        if (!dot) poiseDamage = Math.max(1, Math.round(rawDamage * 0.5));
+      }
+    }
     e.hp -= dmg;
 
     if (dot) {
       addText(`${dmg}`, e.x + rand(-5, 5), e.y - e.h - 7, "#ffb45d", 6, { life: 0.5, vy: -16 });
       if (e.hp <= 0) killEnemy(e);
       return;
+    }
+
+    if (poiseDamage > 0 && !e.poiseBroken && e.hp > 0) {
+      e.poise -= poiseDamage;
+      if (e.poise <= 0) breakBossPoise(e);
     }
 
     e.flash = 0.1;
@@ -5749,11 +6678,12 @@
       e.stateT = 0.2;
     }
 
+    const dmgColor = hasPoise ? (e.poiseBroken ? "#ffb35c" : "#cfe6ff") : "#fff0cf";
     addText(
       crit ? `暴击 ${dmg}` : `${dmg}`,
       e.x + rand(-4, 4),
       e.y - e.h - 7,
-      crit ? "#ffd45f" : "#fff0cf",
+      crit ? "#ffd45f" : dmgColor,
       crit ? 10 : 8,
       { life: crit ? 0.95 : 0.8, vy: crit ? -28 : -20 }
     );
@@ -5789,8 +6719,10 @@
     if (e.boss && !e.phaseTriggered && e.hp / e.maxHp <= e.phase2) {
       e.phaseTriggered = true;
       e.speed *= 1.16;
-      e.cooldown = 0.55;
-      showToast(`${e.name} · 狂暴`, "妖王气息暴涨，攻击来得更快了");
+      e.atk *= 1.2;
+      e.def *= 0.7;
+      e.cooldown = 0.45;
+      showToast(`${e.name} · 狂暴`, "妖王气息暴涨：伤害提高、防御下降、出手更快");
       addEffect({ kind: "ring", x: e.x, y: FLOOR, radius: 8, grow: 95, duration: 0.7, color: "#ff6b52" });
       G.screenFlash = { color: "#e83e3e", alpha: 0.18, t: 0.35, duration: 0.35 };
       Audio.sfx("boss");
@@ -5860,15 +6792,16 @@
     if (e.boss) {
       onBossDefeated(e);
     } else if (!opts.noLoot) {
-      if (chance(e.dropChance)) {
+      if (chance(e.elite ? 0.72 : e.dropChance * 0.55)) {
         const item = generateItem({ source: e.elite ? "elite" : "drop" });
         item.x = e.x;
         item.y = FLOOR - 8;
         spawnDrop({ kind: "equipment", item, x: e.x, y: FLOOR - 10, seed: rand(0, 10) });
       }
-      if (chance(0.13)) spawnDrop({ kind: "health", x: e.x + rand(-10, 10), y: FLOOR - 8, seed: rand(0, 10) });
-      if (chance(0.1)) spawnDrop({ kind: "mana", x: e.x + rand(-10, 10), y: FLOOR - 8, seed: rand(0, 10) });
-      if (chance(0.035)) spawnDrop({ kind: "potion", x: e.x + rand(-10, 10), y: FLOOR - 8, seed: rand(0, 10) });
+      if (chance(0.085)) spawnDrop({ kind: "health", x: e.x + rand(-10, 10), y: FLOOR - 8, seed: rand(0, 10) });
+      if (chance(0.065)) spawnDrop({ kind: "mana", x: e.x + rand(-10, 10), y: FLOOR - 8, seed: rand(0, 10) });
+      if (chance(0.022)) spawnDrop({ kind: "potion", x: e.x + rand(-10, 10), y: FLOOR - 8, seed: rand(0, 10) });
+      if (chance(0.075)) spawnDrop({ kind: "herb", x: e.x + rand(-12, 12), y: FLOOR - 8, seed: rand(0, 10) });
     }
 
     if (G.combo >= 3) {
@@ -5927,10 +6860,16 @@
     const specialKey = ["purification", "heavenSeal", "chaosBell"][Math.min(2, Math.floor(G.stageIndex / 3))];
     G.artifactMats[specialKey] = (G.artifactMats[specialKey] || 0) + 1;
     const specialName = D.MATERIALS[specialKey].name;
+    // 每三关妖王掉落一枚翅膀材料
+    const wingKey = D.WING_MAT_ORDER[Math.min(D.WING_MAT_ORDER.length - 1, Math.floor(G.stageIndex / 3))];
+    G.wingMats[wingKey] = (G.wingMats[wingKey] || 0) + 1;
+    const wingName = D.MATERIALS[wingKey] ? D.MATERIALS[wingKey].name : "翅膀材料";
+    const herbGain = 2 + Math.floor(G.stageIndex / 2);
+    G.spiritHerb = (G.spiritHerb || 0) + herbGain;
     showWaveBanner("妖王伏诛", "大妖已灭 · 战利品已入行囊");
     showToast(
       `击破 ${e.name}`,
-      `获得 ${bonusGold} 金币、${drops.length} 件装备、${essenceGain} 枚悟道精魄、${jadeGain} 枚法宝灵玉与 1 枚${specialName}`
+      `获得 ${bonusGold} 金币、${drops.length} 件装备、${essenceGain} 精魄、${jadeGain} 灵玉、1 枚${specialName}、1 枚${wingName}与 ${herbGain} 株灵药`
     );
     G.portal = { x: WORLD_W - 44, y: FLOOR };
     markSave();
@@ -5986,6 +6925,15 @@
       G.potions = Math.min(9, G.potions + 1);
       addText("回春丹 +1", p.x, p.y - 38, "#a9e7b8", 7, { life: 0.9 });
       Audio.sfx("loot", "uncommon");
+    } else if (d.kind === "herb") {
+      G.spiritHerb = (G.spiritHerb || 0) + 1;
+      addText("灵药 +1", p.x, p.y - 38, "#8ce8ad", 8, { life: 0.9, vy: -16 });
+      Audio.sfx("loot", "uncommon");
+    } else if (d.kind === "wingMat" && d.mat) {
+      G.wingMats[d.mat] = (G.wingMats[d.mat] || 0) + 1;
+      const name = D.MATERIALS[d.mat] ? D.MATERIALS[d.mat].name : "翅膀材料";
+      addText(`${name} +1`, p.x, p.y - 40, "#ffe08a", 8, { life: 1, vy: -18 });
+      Audio.sfx("loot", "epic");
     }
   }
 
@@ -5997,7 +6945,7 @@
     G.hazards.push({
       x: hazard.x,
       y: hazard.y === undefined ? FLOOR : hazard.y,
-      radius: hazard.radius || 34,
+      radius: (hazard.radius || 34) * 1.3,
       delay: hazard.delay === undefined ? 0.55 : hazard.delay,
       maxDelay: hazard.delay === undefined ? 0.55 : hazard.delay,
       damage: hazard.damage || 10,
@@ -6054,7 +7002,7 @@
       gravity: proj.gravity || 0,
       type: proj.type || "darkOrb",
       damage: proj.damage || 5,
-      radius: proj.radius || 6,
+      radius: (proj.radius || 6) * 1.22,
       life: proj.life || 2,
       maxLife: proj.life || 2,
       color: proj.color || "#e4c47b",
@@ -6365,6 +7313,9 @@
     if (G.clone && !G.clone.dead) A.drawClone(ctx, G.clone, G.time, playerAppearance());
 
     const p = G.player;
+    if (p && !p.dead && p.wing) {
+      A.drawWings(ctx, p.x, p.y, p.facing, G.time, p.wing, { state: p.state });
+    }
     if (p && !p.dead && p.activeArtifact && p.state !== "firespin") {
       const ax = p.x - p.facing * 15;
       const ay = p.y - 30 + Math.sin(G.time * 2.6) * 2;

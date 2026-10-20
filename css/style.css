@@ -443,6 +443,30 @@ kbd {
   transition: width 0.18s ease-out;
 }
 
+.boss-poise-bar {
+  height: 0.4em;
+  margin-top: 0.18em;
+  padding: 1px;
+  background: #070a10;
+  border: 1px solid #2c4a63;
+}
+
+.boss-poise-bar > i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(180deg, #d8f4ff, #6fd0ff 55%, #2c7ba8);
+  transition: width 0.12s linear;
+}
+
+.boss-poise-bar.broken {
+  border-color: #7a3a1c;
+}
+
+.boss-poise-bar.broken > i {
+  background: linear-gradient(180deg, #ffd9a0, #ff8a4a 55%, #a83a12);
+}
+
 .wave-banner {
   position: absolute;
   top: 27%;
@@ -1457,6 +1481,134 @@ kbd {
   font-size: 0.92em;
   font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
   letter-spacing: 0;
+}
+
+.bag-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6em;
+  margin-top: 0.5em;
+}
+
+.bag-page-label {
+  color: #e8d8ae;
+  font-size: 0.8em;
+  font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
+  min-width: 4em;
+  text-align: center;
+}
+
+.artifact-stats {
+  margin: 0.4em 0 0;
+  padding: 0.35em 0.55em;
+  border: 1px solid #4a4227;
+  border-radius: 0.35em;
+  background: rgba(40, 32, 10, 0.5);
+  color: #ffd875;
+  font-size: 0.82em;
+  font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
+  letter-spacing: 0;
+}
+
+.awaken-panel {
+  width: min(42em, 94%);
+  max-height: 92%;
+  display: flex;
+  flex-direction: column;
+  padding: 1em 1.2em;
+  background: linear-gradient(180deg, #1b1826, #121022);
+  border: 2px solid var(--line-gold);
+  border-radius: 0.6em;
+  box-shadow: var(--shadow);
+}
+
+.awaken-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8em;
+  margin-bottom: 0.6em;
+}
+
+.awaken-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.awaken-body {
+  overflow-y: auto;
+  padding-right: 0.2em;
+}
+
+.awaken-desc {
+  margin: 0 0 0.7em;
+  color: #b9c0d8;
+  font-size: 0.86em;
+  line-height: 1.6;
+  font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
+}
+
+.awaken-desc b {
+  color: #ffd875;
+}
+
+.awaken-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45em;
+}
+
+.awaken-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55em;
+  padding: 0.5em 0.7em;
+  background: rgba(30, 26, 46, 0.85);
+  border: 1px solid #3a3f5c;
+  border-radius: 0.4em;
+}
+
+.awaken-row-name {
+  flex: 1;
+  color: #e8d8ae;
+  font-size: 0.9em;
+  font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
+}
+
+.awaken-row-val {
+  min-width: 4.4em;
+  text-align: right;
+  color: #ffd875;
+  font-weight: 800;
+  font-size: 0.95em;
+}
+
+.awaken-total {
+  margin-top: 0.7em;
+  padding: 0.5em 0.7em;
+  border: 1px solid #4a4227;
+  border-radius: 0.4em;
+  background: rgba(40, 32, 10, 0.5);
+  color: #ffe8a8;
+  font-size: 0.86em;
+  font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
+}
+
+.wing-list .shop-card {
+  width: 100%;
+}
+
+.wing-list .shop-card-icon {
+  font-size: 1.1em;
+}
+
+.awaken-footer {
+  margin-top: 0.7em;
+  color: #727c97;
+  font-size: 0.76em;
+  font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
 }
 
 .title-card .shop-card-main b {

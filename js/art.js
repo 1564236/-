@@ -983,6 +983,7 @@
     const state = opts.state || "idle";
     const t = opts.t || 0;
     const progress = clamp(opts.attackProgress || 0, 0, 1);
+    const combo = opts.combo || 1;
     const skillProgress = clamp(opts.skillProgress || 0, 0, 1);
     const roll = clamp(opts.roll || 0, 0, 1);
     const flash = !!opts.flash;
@@ -1096,8 +1097,14 @@
     rect(ctx, 9, -37, 10, 2, m(cream));
     rect(ctx, -17, -33, 5, 2, m(gold));
     rect(ctx, 12, -33, 5, 2, m(gold));
-    // arms
-    const swordAngle = attack ? lerp(-1.7, 0.95, 1 - Math.pow(1 - progress, 2)) : skill ? lerp(-1.2, 0.8, skillProgress) : run ? -0.7 + runPhase * 0.12 : -0.55;
+    // arms —— 四段普攻各有独立剑路
+    const swingEase = 1 - Math.pow(1 - progress, 2.1);
+    const swordAngle = attack
+      ? (combo === 1 ? lerp(-2.0, 0.7, swingEase)
+        : combo === 2 ? lerp(1.1, -1.7, swingEase)
+        : combo === 3 ? lerp(-2.8, 1.1, swingEase)
+        : -1.5 + progress * TAU * 1.1)
+      : skill ? lerp(-1.2, 0.8, skillProgress) : run ? -0.7 + runPhase * 0.12 : -0.55;
     const handX = attack ? 9 + Math.cos(swordAngle) * 9 : 10;
     const handY = attack ? -28 + Math.sin(swordAngle) * 7 : -26;
     line(ctx, 7, -33, handX, handY, m(blueDark), 4);
@@ -1124,10 +1131,11 @@
     drawMechaSword(ctx, handX, handY, swordAngle, attack ? 33 : 29, m);
     if (attack && progress > 0.25) {
       ctx.save();
-      ctx.globalAlpha = (1 - Math.abs(progress - 0.55)) * 0.45;
-      for (let i = 0; i < 7; i++) {
-        const a = swordAngle - 0.9 + i * 0.15;
-        line(ctx, handX, handY, handX + Math.cos(a) * 34, handY + Math.sin(a) * 34, i % 2 ? "#8fe8ff" : "#ffd36a", 1);
+      ctx.globalAlpha = (1 - Math.abs(progress - 0.55)) * (combo === 4 ? 0.7 : 0.45);
+      const trailCount = combo === 4 ? 12 : combo === 3 ? 9 : 7;
+      for (let i = 0; i < trailCount; i++) {
+        const a = swordAngle - (combo === 4 ? 1.6 : 0.9) + i * (combo === 4 ? 0.28 : 0.15);
+        line(ctx, handX, handY, handX + Math.cos(a) * (combo === 4 ? 40 : 34), handY + Math.sin(a) * (combo === 4 ? 40 : 34), i % 2 ? "#8fe8ff" : "#ffd36a", combo === 4 ? 2 : 1);
       }
       ctx.restore();
     }
@@ -1443,15 +1451,15 @@
     if (attack) {
       const a = attackAngle(combo, progress);
       ctx.save();
-      const trailStart = a - (combo === 3 ? 1.5 : 0.95) * (progress > 0.08 ? 1 : 0);
-      for (let i = 0; i < 7; i++) {
-        const aa = lerp(trailStart, a, i / 6);
+      const trailStart = a - (combo >= 3 ? 1.7 : 0.95) * (progress > 0.08 ? 1 : 0);
+      for (let i = 0; i < (combo === 4 ? 10 : 7); i++) {
+        const aa = lerp(trailStart, a, i / (combo === 4 ? 9 : 6));
         const rr = 17 + i % 2;
         ctx.globalAlpha = (0.1 + (i / 6) * 0.4) * (1 - Math.abs(progress - 0.55) * 0.5);
         rect(ctx, Math.cos(aa) * rr + 1, -17 + Math.sin(aa) * rr, 2, 2, i > 3 ? "#fff0a8" : "#f6bd45");
       }
       ctx.restore();
-      drawStaff(ctx, 1, -17, a, combo === 3 ? 31 : 28, flash, weaponColor);
+      drawStaff(ctx, 1, -17, a, combo === 4 ? 34 : combo === 3 ? 31 : 28, flash, weaponColor);
       if (progress > 0.25 && progress < 0.7) {
         halo(ctx, Math.cos(a) * 20, -17 + Math.sin(a) * 20, 5, "#ffd76a", 0.16);
       }
@@ -1520,7 +1528,8 @@
     const ease = 1 - Math.pow(1 - p, 2.4);
     if (combo === 1) return lerp(-2.55, 0.58, ease);
     if (combo === 2) return lerp(0.9, -2.2, ease);
-    return lerp(-3.0, 1.15, ease);
+    if (combo === 3) return lerp(-3.0, 1.15, ease);
+    return -1.6 + p * TAU * 1.15;
   }
 
   /* ------------------------------------------------------------------ */
@@ -2656,6 +2665,18 @@
       rect(ctx, d.x - 4, y - 3, 8, 6, "#5fbf88");
       rect(ctx, d.x - 3, y - 2, 3, 2, "#c7f3d3");
       rect(ctx, d.x - 4, y + 2, 8, 1, "#316f4e");
+    } else if (d.kind === "herb") {
+      halo(ctx, d.x, y, 8, "#8ce8ad", 0.16);
+      rect(ctx, d.x - 1, y - 2, 2, 7, "#4f8f62");
+      polygon(ctx, [[d.x - 1, y - 1], [d.x - 6, y - 5], [d.x - 2, y + 1]], "#7fe0a0");
+      polygon(ctx, [[d.x + 1, y - 2], [d.x + 6, y - 6], [d.x + 2, y + 1]], "#a9f0c4");
+      circle(ctx, d.x, y - 6, 2, "#d9ffe8");
+    } else if (d.kind === "wingMat" && d.mat) {
+      const matDef = window.GameData.MATERIALS[d.mat] || { color: "#ffe08a" };
+      halo(ctx, d.x, y, 9, matDef.color, 0.18);
+      polygon(ctx, [[d.x, y - 7], [d.x + 5, y + 4], [d.x - 5, y + 4]], matDef.color);
+      polygon(ctx, [[d.x, y - 4], [d.x + 3, y + 3], [d.x - 3, y + 3]], "#fff6d8");
+      rect(ctx, d.x - 1, y + 2, 2, 4, shade(matDef.color, 0.6));
     } else if (d.kind === "equipment" && d.item) {
       const gearColor = window.GameData.getRarity(d.item.rarity).color;
       drawLootBeam(ctx, d.x, y, d.item.rarity, t + d.seed);
@@ -3130,6 +3151,209 @@
     ctx.restore();
   }
 
+  function drawWings(ctx, x, y, facing, t, wingId, opts = {}) {
+    const def = window.GameData.WINGS[wingId];
+    if (!def) return;
+    const c = opts.flash ? "#fff4df" : def.color;
+    const flap = Math.sin(t * 2.4) * 0.2 + (opts.state === "jump" || opts.state === "fall" ? -0.16 : 0);
+    const scale = opts.scale || 1;
+    ctx.save();
+    ctx.translate(Math.round(x), Math.round(y));
+    ctx.scale(facing < 0 ? -scale : scale, scale);
+    ctx.translate(0, -24);
+
+    if (wingId === "feather") {
+      // 雏翼：小巧圆润的幼羽
+      for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.scale(side, 1);
+        ctx.rotate(flap * 0.9);
+        polygon(ctx, [[0, -2], [20, -15], [29, -3], [20, 9], [5, 6]], tint(def.color, 0.3));
+        for (let i = 0; i < 3; i++) {
+          const a = -0.7 + i * 0.45;
+          const bx = Math.cos(a) * 24;
+          const by = Math.sin(a) * 17;
+          polygon(ctx, [[0, 0], [bx, by], [bx - 6, by + 5], [2, 6]], i === 1 ? "#e8f8ff" : c);
+        }
+        ctx.restore();
+      }
+      for (let i = 0; i < 4; i++) {
+        rect(ctx, Math.sin(t * 2 + i) * 22, -18 - i * 7, 1, 1, "#e8f8ff");
+      }
+    } else if (wingId === "flame") {
+      // 浴火：火舌状羽翼
+      for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.scale(side, 1);
+        ctx.rotate(flap * 1.4);
+        for (let i = 0; i < 6; i++) {
+          const a = -0.95 + i * 0.3;
+          const len = 40 - i * 3 + Math.sin(t * 6 + i) * 3;
+          const bx = Math.cos(a) * len;
+          const by = Math.sin(a) * len * 0.8 - 4;
+          polygon(ctx, [[0, 4], [bx, by], [bx * 0.7, by + 12], [3, 10]], i % 2 ? "#ffd05a" : c);
+          polygon(ctx, [[2, 5], [bx * 0.75, by + 4], [bx * 0.55, by + 12], [4, 10]], "#ff5a2b");
+        }
+        ctx.restore();
+      }
+      for (let i = 0; i < 8; i++) {
+        const ph = (t * 1.6 + i * 0.7) % 1;
+        rect(ctx, Math.sin(t * 3 + i) * 26, -6 - ph * 34, 1, 2, i % 2 ? "#ffb45a" : "#ffe8a0");
+      }
+    } else if (wingId === "core") {
+      // 核力制动：机械翼板 + 推进器
+      for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.scale(side, 1);
+        ctx.rotate(flap * 0.5);
+        polygon(ctx, [[0, -6], [32, -20], [44, -6], [26, 8]], "#3f5a78");
+        polygon(ctx, [[2, -5], [30, -17], [39, -7], [24, 5]], "#7e9bb8");
+        line(ctx, 4, -4, 34, -14, "#9fe8ff", 1);
+        line(ctx, 6, 1, 30, -6, "#9fe8ff", 1);
+        rect(ctx, 18, -12, 8, 2, "#ffd36a");
+        ctx.restore();
+      }
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      for (const side of [-1, 1]) {
+        const jx = 10 * side;
+        rect(ctx, jx - 3, 6, 6, 4, "#5d7694");
+        rect(ctx, jx - 2, 9, 4, 5, "#9fe8ff");
+        polygon(ctx, [[jx - 3, 14], [jx + 3, 14], [jx, 22 + Math.sin(t * 18) * 3]], "#ffd36a");
+      }
+      ctx.restore();
+    } else if (wingId === "holy") {
+      // 神光：巨大天使羽翼 + 圣光
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      halo(ctx, 0, -4, 54, "#fff3c0", 0.35);
+      ctx.restore();
+      for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.scale(side, 1);
+        ctx.rotate(flap * 1.1);
+        polygon(ctx, [[0, -3], [36, -24], [54, -8], [38, 14], [10, 9]], "#e8dcb0");
+        for (let row = 0; row < 4; row++) {
+          const len = 46 - row * 8;
+          for (let i = 0; i < 6; i++) {
+            const a = -0.95 + i * 0.32 - row * 0.06;
+            const bx = Math.cos(a) * len;
+            const by = Math.sin(a) * len * 0.72 - row * 2;
+            polygon(ctx, [[0, 0], [bx, by], [bx - 8, by + 6], [2, 8]], row === 0 ? "#fffdf0" : row === 1 ? "#ffe9a0" : c);
+          }
+        }
+        ctx.restore();
+      }
+      for (let i = 0; i < 6; i++) {
+        const a = -1.3 + i * 0.52 + Math.sin(t) * 0.05;
+        line(ctx, 0, -2, Math.cos(a) * 62, Math.sin(a) * 36, "#fff3c0", 1);
+      }
+    } else if (wingId === "star") {
+      // 星宇：星空翼膜 + 星尘
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      halo(ctx, 0, -4, 48, "#b48cff", 0.35);
+      ctx.restore();
+      for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.scale(side, 1);
+        ctx.rotate(flap * 0.85);
+        polygon(ctx, [[0, -4], [30, -22], [48, -14], [50, 2], [30, 12], [8, 8]], "#2b2350");
+        polygon(ctx, [[0, -3], [26, -18], [42, -12], [44, 1], [27, 9], [8, 6]], "#4b3f86");
+        for (let i = 0; i < 12; i++) {
+          const a = -0.8 + i * 0.16;
+          const r = 12 + (i % 4) * 9;
+          rect(ctx, Math.cos(a) * r, Math.sin(a) * r * 0.62 - 3, 1, 1, i % 3 === 0 ? "#fff3c0" : "#e8dcff");
+        }
+        line(ctx, 2, -3, 40, -12, "#b48cff", 1);
+        ctx.restore();
+      }
+      for (let i = 0; i < 7; i++) {
+        const a = t * 1.1 + i * 0.9;
+        rect(ctx, Math.cos(a) * (30 + (i % 3) * 8), Math.sin(a) * 20, 1, 1, "#e8dcff");
+      }
+    } else if (wingId === "void") {
+      // 太虚：半透明虚影羽翼 + 符环
+      ctx.save();
+      ctx.globalAlpha = 0.45;
+      for (const off of [-6, 6]) {
+        for (const side of [-1, 1]) {
+          ctx.save();
+          ctx.scale(side, 1);
+          ctx.translate(off * side * 0.4, 0);
+          ctx.rotate(flap * 0.7);
+          polygon(ctx, [[0, -3], [30, -20], [46, -8], [32, 12], [8, 8]], "#1f4f46");
+          ctx.restore();
+        }
+      }
+      ctx.restore();
+      for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.scale(side, 1);
+        ctx.rotate(flap * 0.7);
+        polygon(ctx, [[0, -2], [28, -18], [43, -7], [30, 11], [8, 7]], "#3f8f7c");
+        for (let i = 0; i < 5; i++) {
+          const a = -0.85 + i * 0.4;
+          const bx = Math.cos(a) * 34;
+          const by = Math.sin(a) * 24;
+          polygon(ctx, [[0, 0], [bx, by], [bx - 6, by + 5], [2, 6]], i % 2 ? "#6ee7c2" : "#b9ffe9");
+        }
+        ctx.restore();
+      }
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      circle(ctx, 0, -4, 12, "rgba(0,0,0,0)");
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.arc(0, -4, 14 + i * 5, t * (1 + i * 0.3), t * (1 + i * 0.3) + Math.PI * 1.4);
+        ctx.strokeStyle = "#6ee7c2";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      ctx.restore();
+    } else {
+      // 无极：双层金翼 + 曼陀罗光环
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      halo(ctx, 0, -4, 60, "#ffd75e", 0.4);
+      ctx.restore();
+      for (const layer of [0, 1]) {
+        const mul = layer === 0 ? 1 : 0.68;
+        for (const side of [-1, 1]) {
+          ctx.save();
+          ctx.scale(side, 1);
+          ctx.rotate(flap * (1 + layer * 0.3));
+          polygon(ctx, [[0, -3], [38 * mul, -24 * mul], [56 * mul, -8 * mul], [40 * mul, 14 * mul], [10 * mul, 10 * mul]], layer === 0 ? "#8a6420" : "#b98c2e");
+          for (let row = 0; row < 4; row++) {
+            const len = (48 - row * 8) * mul;
+            for (let i = 0; i < 6; i++) {
+              const a = -0.95 + i * 0.32 - row * 0.06;
+              const bx = Math.cos(a) * len;
+              const by = Math.sin(a) * len * 0.72 - row * 2;
+              polygon(ctx, [[0, 0], [bx, by], [bx - 8, by + 6], [2, 8]], row === 0 ? "#fff3c0" : row === 1 ? "#ffd75e" : layer === 0 ? "#e8b32a" : "#fff0b8");
+            }
+          }
+          ctx.restore();
+        }
+      }
+      ctx.save();
+      ctx.globalAlpha = 0.6;
+      for (let i = 0; i < 2; i++) {
+        ctx.beginPath();
+        ctx.arc(0, -6, 26 + i * 10, t * (0.8 + i * 0.4), t * (0.8 + i * 0.4) + Math.PI * 1.7);
+        ctx.strokeStyle = "#ffe8a8";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      ctx.restore();
+      for (let i = 0; i < 10; i++) {
+        const a = t * 1.4 + i * 0.63;
+        rect(ctx, Math.cos(a) * (30 + (i % 4) * 8), Math.sin(a) * (18 + (i % 2) * 8) - 4, 1, 2, "#fff3c0");
+      }
+    }
+    ctx.restore();
+  }
+
   window.Art = {
     W, H, FLOOR,
     rect, px, circle, ellipse, line, polygon, halo, shadow, drawText,
@@ -3141,7 +3365,7 @@
     drawSlash, drawHitSpark, drawShockwave, drawFlame,
     drawFireTornado, drawClone, drawStaffSlamEffect, drawEyeBeam, drawEyeBurst, drawBottleAura,
     drawGearGlyph, drawLootBeam,
-    drawPortrait, drawCharacterPreview, drawArtifactModel,
+    drawPortrait, drawCharacterPreview, drawArtifactModel, drawWings,
     drawPeachTree, drawCrystalCluster, drawDeadTree, drawGhostFire
   };
 })();
