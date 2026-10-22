@@ -30,6 +30,7 @@
               <div class="bar hp-bar"><i id="hp-fill"></i><span id="hp-text">110 / 110</span></div>
               <div class="bar mp-bar"><i id="mp-fill"></i><span id="mp-text">50 / 50</span></div>
               <div class="bar xp-bar"><i id="xp-fill"></i><span id="xp-text">0 / 48</span></div>
+              <div class="bar rage-bar" id="rage-bar"><i id="rage-fill"></i><span id="rage-text">怒气 0 / 100 · Q</span></div>
             </div>
           </div>
 
@@ -148,7 +149,7 @@
           </div>
           <p class="fan-note">致敬《造梦西游3》的像素同人练习作 · 键盘 / 触屏均可游玩</p>
         </div>
-        <div class="title-footer"><span>v3.1 · 神通狂暴</span><span>本地自动存档</span></div>
+        <div class="title-footer"><span>v4.2 · 太初至宝</span><span>本地自动存档</span></div>
       </section>
 
       <!-- ===== 关卡横幅 ===== -->
@@ -251,6 +252,7 @@
               </div>
               <div class="character-stats" id="character-stats"></div>
               <div class="character-specials" id="character-specials"></div>
+              <div class="set-bonus" id="set-bonus"></div>
             </div>
 
             <div class="bag-column">
@@ -260,6 +262,10 @@
                   <button class="tiny-button" id="auto-equip">一键最优</button>
                   <button class="tiny-button" id="salvage-low" title="只分解战力低于同部位已装备的装备">分解低战力</button>
                   <button class="tiny-button" id="salvage-common">分解凡品</button>
+                  <button class="tiny-button" id="salvage-uncommon">分解灵品</button>
+                  <button class="tiny-button" id="salvage-rare">分解仙品</button>
+                  <button class="tiny-button gold" id="merge-epic" title="消耗 3 件神品，随机合成一件金色洪荒装备">神品三合</button>
+                  <button class="tiny-button gold" id="merge-primordial" title="消耗 3 件洪荒，随机合成一件红色太初至宝">洪荒三合</button>
                 </div>
               </div>
               <div class="bag-grid" id="bag-grid"></div>
@@ -462,7 +468,7 @@
           </header>
           <div class="reincarnation-body">
             <div class="reincarnation-orb">轮</div>
-            <p class="reincarnation-desc">轮回会清空等级、装备、背包、金币与悟道精魄，并重置全部技能等级与技能栏；金币按 10000:1、悟道精魄按 10:1 折算为轮回石。称号、时装、法宝、材料与觉醒前世强化永久保留。</p>
+            <p class="reincarnation-desc">轮回会清空等级、装备、背包、金币与悟道精魄，并重置全部技能等级与技能栏；轮回石按<b>本轮实际推进的关卡进度</b>结算（金币 10000:1、精魄 10:1 另有折算），反复刷第一关收益极低。称号、时装、法宝、材料与觉醒强化永久保留。</p>
             <div class="reincarnation-stats" id="reincarnation-stats"></div>
             <div class="reincarnation-actions">
               <button class="pixel-button primary" id="confirm-reincarnation">确认轮回</button>

@@ -550,6 +550,87 @@
     polygon(ctx, [[480, FLOOR], [462, 165], [430, 194], [418, FLOOR]], "#2b0e0c");
   }
 
+  function drawNineSunBackground(ctx, cam, t, opts = {}) {
+    const suns = opts.suns === undefined ? 9 : opts.suns;
+    const demon = !!opts.demon;
+    const sky = ctx.createLinearGradient(0, 0, 0, FLOOR);
+    if (demon) {
+      sky.addColorStop(0, "#12060f");
+      sky.addColorStop(0.45, "#2c1038");
+      sky.addColorStop(0.78, "#4a1550");
+      sky.addColorStop(1, "#7a2760");
+    } else {
+      sky.addColorStop(0, "#3a1408");
+      sky.addColorStop(0.4, "#8a3c10");
+      sky.addColorStop(0.72, "#d0711f");
+      sky.addColorStop(1, "#f0a83f");
+    }
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, FLOOR);
+
+    // 九个太阳（开场前 9 个，射落后只剩 1 个；魔化后以紫气重现 9 个）
+    const slots = [
+      [52, 34], [126, 22], [202, 40], [286, 20], [368, 36],
+      [438, 58], [96, 74], [248, 66], [404, 88]
+    ];
+    const coreColor = demon ? "#c07aff" : "#ffe08a";
+    const glowColor = demon ? "#7a2f9f" : "#ff8a3d";
+    for (let i = 0; i < suns && i < slots.length; i++) {
+      const x = ((slots[i][0] - cam * 0.05) % (W + 120) + W + 120) % (W + 120) - 60;
+      const y = slots[i][1] + Math.sin(t * 0.8 + i) * 2;
+      const r = 11 + (i % 3);
+      ctx.save();
+      ctx.globalAlpha = demon ? 0.5 : 0.42;
+      halo(ctx, x, y, r * 3.1, glowColor, 0.34);
+      ctx.restore();
+      circle(ctx, x, y, r, glowColor);
+      circle(ctx, x, y, r * 0.72, coreColor);
+      circle(ctx, x - r * 0.22, y - r * 0.22, r * 0.34, "#fffaf0");
+      if (demon) {
+        for (let k = 0; k < 3; k++) {
+          const a = t * 2 + k * 2.1 + i;
+          rect(ctx, x + Math.cos(a) * (r + 5), y + Math.sin(a) * (r + 5), 2, 2, k % 2 ? "#ff8ad8" : "#b06bff");
+        }
+      }
+    }
+
+    // 焦土山脊
+    const ridgeX = 140 - cam * 0.06;
+    polygon(ctx, [[ridgeX - 160, FLOOR], [ridgeX - 70, 96], [ridgeX + 10, 122], [ridgeX + 90, 74], [ridgeX + 190, 132], [ridgeX + 280, FLOOR]], demon ? "#241030" : "#4a210c");
+    drawRidge(ctx, 196, 24, demon ? "#341542" : "#6b3410", 5.4, -cam * 0.2, 36);
+
+    // 干裂地面纹路与热浪
+    ctx.save();
+    ctx.globalAlpha = demon ? 0.3 : 0.24;
+    for (let i = 0; i < 7; i++) {
+      const y = 150 + i * 9;
+      const x = ((i * 97 - cam * 0.16) % 560) - 40;
+      line(ctx, x, y, x + 120, y + 3, demon ? "#b06bff" : "#ffb14d", 1);
+    }
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    for (let i = 0; i < 4; i++) {
+      const y = 140 + i * 18 + Math.sin(t * 1.4 + i) * 3;
+      ellipse(ctx, ((i * 150 + t * 6 - cam * 0.1) % 600) - 60, y, 90, 6, demon ? "#ff8ad8" : "#ffd47a");
+    }
+    ctx.restore();
+
+    // 飘散火星 / 魔气
+    ctx.save();
+    for (let i = 0; i < 30; i++) {
+      const x = ((hash(i + 11) * W - cam * 0.22 + Math.sin(t * 0.7 + i) * 8) % W + W) % W;
+      const y = 236 - ((hash(i + 21) * 220 + t * (10 + hash(i) * 16)) % 220);
+      ctx.globalAlpha = 0.25 + hash(i + 7) * 0.5;
+      rect(ctx, x, y, 1, 2, demon ? (i % 2 ? "#c07aff" : "#ff8ad8") : i % 3 ? "#ffb03d" : "#ffe9a8");
+    }
+    ctx.restore();
+
+    // 前景焦石
+    polygon(ctx, [[-20, FLOOR], [0, 156], [38, 190], [56, FLOOR]], demon ? "#1b0c22" : "#33160a");
+    polygon(ctx, [[480, FLOOR], [462, 170], [428, 196], [416, FLOOR]], demon ? "#1b0c22" : "#33160a");
+  }
+
   function drawRiverBackground(ctx, cam, t) {
     const sky = ctx.createLinearGradient(0, 0, 0, FLOOR);
     sky.addColorStop(0, "#031722");
@@ -760,6 +841,30 @@
       ctx.save();
       ctx.globalAlpha = 0.25 + Math.sin(t * 3) * 0.06;
       for (let i = 0; i < 4; i++) ellipse(ctx, 70 + i * 124 - cam * 0.2, FLOOR + 2, 38, 3, "#ff6a25");
+      ctx.restore();
+      return;
+    }
+
+    if (biome === "ninesun") {
+      rect(ctx, 0, FLOOR, W, H - FLOOR, "#3a2110");
+      rect(ctx, 0, FLOOR, W, 4, "#6f4020");
+      rect(ctx, 0, FLOOR, W, 2, "#c98a45");
+      for (let x = -28; x < W + 40; x += 20) {
+        const wx = x - (cam % 20);
+        rect(ctx, wx, FLOOR + 8 + hash(x) * 8, 8, 3, "#4a2a13");
+        if (hash(x + 4) > 0.5) rect(ctx, wx + 9, FLOOR + 16 + hash(x + 2) * 6, 5, 2, "#2f1c0d");
+      }
+      ctx.save();
+      ctx.globalAlpha = 0.4;
+      for (let x = -30; x < W + 30; x += 41) {
+        const xx = x - (cam % 41);
+        line(ctx, xx, FLOOR + 2, xx + 16, FLOOR + 7, "#ffb14d", 1);
+        line(ctx, xx + 16, FLOOR + 7, xx + 27, FLOOR + 4, "#e08a3a", 1);
+      }
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = 0.22 + Math.sin(t * 3) * 0.05;
+      for (let i = 0; i < 4; i++) ellipse(ctx, 76 + i * 120 - cam * 0.2, FLOOR + 2, 40, 3, "#ffcf7a");
       ctx.restore();
       return;
     }
@@ -1153,6 +1258,641 @@
       halo(ctx, 0, -28, 20, "#8fe8ff", 0.25);
       ctx.restore();
     }
+    // 细节补完：装甲分件线、铆钉、推进口、面罩流光
+    ctx.save();
+    ctx.globalAlpha = 0.75;
+    line(ctx, -6, -24, 6, -24, m("#2f416d"), 1);
+    line(ctx, -5, -18, 5, -18, m("#2f416d"), 1);
+    rect(ctx, -8, -35, 1, 10, m("#2f416d"));
+    rect(ctx, 7, -35, 1, 10, m("#2f416d"));
+    for (let i = 0; i < 4; i++) rect(ctx, -7 + i * 4, -34, 1, 1, m("#dff2ff"));
+    for (let i = 0; i < 3; i++) rect(ctx, -6 + i * 6, -20, 1, 1, m("#9fe8ff"));
+    rect(ctx, -6, -13, 12, 1, m("#2f416d"));
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = 0.5 + Math.sin(t * 6) * 0.12;
+    rect(ctx, -5, -43, 10, 2, m(visor));
+    rect(ctx, -4, -43, 3, 1, "#ffffff");
+    ctx.restore();
+    if (run) {
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      rect(ctx, -8, -6, 4, 1, m(visor));
+      rect(ctx, 4, -6, 4, 1, m(visor));
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  function drawRuinedBlade(ctx, hx, hy, angle, len, m) {
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    const bx = hx + dx * 6;
+    const by = hy + dy * 6;
+    const tx = hx + dx * len;
+    const ty = hy + dy * len;
+    // 剑柄与护手
+    line(ctx, hx - dx * 4, hy - dy * 4, bx, by, "#1d1f26", 2);
+    rect(ctx, bx - 3, by - 2, 6, 4, "#2b2f3a");
+    polygon(ctx, [[bx + dy * 5, by - dx * 5], [bx - dy * 5, by + dx * 5], [bx + dx * 3, by + dy * 3]], "#4a5260");
+    // 幽绿魂刃
+    polygon(ctx, [
+      [bx + dy * 5, by - dx * 5],
+      [tx + dy * 4, ty - dx * 4],
+      [tx + dx * 10, ty + dy * 10],
+      [tx - dy * 4, ty + dx * 4],
+      [bx - dy * 5, by + dx * 5]
+    ], m("#2f6f66"));
+    polygon(ctx, [
+      [bx + dy * 2, by - dx * 2],
+      [tx + dy * 1.5, ty - dx * 1.5],
+      [tx + dx * 7, ty + dy * 7],
+      [tx - dy * 1.5, ty + dx * 1.5],
+      [bx - dy * 2, by + dx * 2]
+    ], m("#7ff0d8"));
+    line(ctx, bx + dx * 4, by + dy * 4, tx + dx * 8, ty + dy * 8, m("#d8fff6"), 1);
+    ctx.save();
+    ctx.globalAlpha = 0.22 + Math.sin(Date.now() * 0.004) * 0.05;
+    circle(ctx, tx, ty, 5, m("#5fe6c8"));
+    ctx.restore();
+  }
+
+  function drawRuinedWukong(ctx, x, y, facing, opts = {}) {
+    const state = opts.state || "idle";
+    const t = opts.t || 0;
+    const progress = clamp(opts.attackProgress || 0, 0, 1);
+    const combo = opts.combo || 1;
+    const skillProgress = clamp(opts.skillProgress || 0, 0, 1);
+    const roll = clamp(opts.roll || 0, 0, 1);
+    const flash = !!opts.flash;
+    const golden = !!opts.golden;
+    const m = (color) => (golden ? goldify(color) : flash ? "#eafff8" : color);
+    const pale = "#e6dcc6";
+    const dark = "#22242c";
+    const dark2 = "#343844";
+    const hair = "#f2f2ee";
+    const soul = "#5fe6c8";
+    const run = state === "run";
+    const jump = state === "jump" || state === "fall";
+    const attack = state === "attack";
+    const skill = state === "skill";
+    const hurt = state === "hurt";
+    const dead = state === "dead";
+    const dash = state === "dash";
+    const runPhase = Math.sin(t * 20);
+
+    shadow(ctx, x, y, dead ? 15 : 11, 0.26);
+    ctx.save();
+    ctx.translate(Math.round(x), Math.round(y));
+    if (facing < 0) ctx.scale(-1, 1);
+    if (dead) {
+      ctx.rotate(-0.16);
+      ctx.translate(0, -2);
+    }
+    const bob = state === "idle" ? Math.round(Math.sin(t * 3)) : run ? Math.round(Math.abs(runPhase) * 1.2) : 0;
+    ctx.translate(run ? 1.2 : 0, bob);
+    if (roll > 0) {
+      ctx.translate(0, -15);
+      ctx.rotate(roll * TAU);
+      ctx.translate(0, 15);
+    }
+    if (dash) {
+      ctx.rotate(0.22);
+      ctx.save();
+      ctx.globalAlpha = 0.4;
+      for (let i = 0; i < 4; i++) {
+        rect(ctx, -20 - i * 5, -30 + i * 8, 10, 1, i % 2 ? soul : "#d8fff6");
+      }
+      ctx.restore();
+    }
+
+    // 身后幽绿魂焰 / 破败披风
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    for (let i = 0; i < 5; i++) {
+      const sx = -6 - i * 5 + Math.sin(t * 5 + i) * 2;
+      const sy = -24 + i * 3;
+      polygon(ctx, [[sx, sy], [sx - 6, sy + 4], [sx - 2, sy + 12], [sx + 3, sy + 4]], m(i % 2 ? "#2f6f66" : soul));
+    }
+    ctx.restore();
+
+    // 腿
+    const legA = run ? runPhase * 2.2 : 0;
+    for (const [lx, off] of [[-5, legA], [2, -legA]]) {
+      rect(ctx, lx, -16 + Math.max(-2, off), 5, 12, m(dark));
+      rect(ctx, lx + 1, -15 + Math.max(-2, off), 3, 8, m(dark2));
+      rect(ctx, lx - 1 + off * 0.2, -4 + (jump ? -3 : 0), 7, 4, m("#191a20"));
+      // 破烂裤脚
+      polygon(ctx, [[lx - 1, -5], [lx + 1, -1], [lx + 4, -5]], m(soul));
+    }
+    // 腰带
+    rect(ctx, -7, -19, 14, 3, m("#3a2f22"));
+    rect(ctx, -2, -19, 4, 2, m(soul));
+
+    // 赤裸上身 + 敞开的长衣
+    rect(ctx, -6, -33, 12, 15, m(pale));
+    rect(ctx, -4, -30, 8, 9, m("#d8ccb2"));
+    rect(ctx, -6, -31, 2, 10, m(dark2));
+    rect(ctx, 4, -31, 2, 10, m(dark2));
+    // 长衣下摆
+    polygon(ctx, [[-7, -20], [-3, -20], [-4, -6], [-9, -8]], m(dark));
+    polygon(ctx, [[3, -20], [7, -20], [9, -8], [4, -6]], m(dark));
+    for (let i = 0; i < 4; i++) {
+      const sx = -8 - i * 3 + Math.sin(t * 4 + i) * 1.5;
+      polygon(ctx, [[sx, -18], [sx - 2, -10], [sx + 2, -12]], m(i % 2 ? "#2f6f66" : soul));
+    }
+
+    // 左臂黑爪
+    const clawX = -9;
+    const clawY = run ? -14 + runPhase : -14;
+    line(ctx, -5, -30, clawX, clawY, m(dark), 3);
+    rect(ctx, clawX - 3, clawY - 2, 5, 4, m("#191a20"));
+    for (let i = 0; i < 3; i++) {
+      line(ctx, clawX - 2, clawY, clawX - 8, clawY + 3 + i * 3, m(soul), 1);
+    }
+
+    // 右臂 + 巨剑
+    const swingEase = 1 - Math.pow(1 - progress, 2.1);
+    const bladeAngle = attack
+      ? (combo === 1 ? lerp(-2.1, 0.6, swingEase)
+        : combo === 2 ? lerp(1.0, -1.8, swingEase)
+        : combo === 3 ? lerp(-2.9, 1.0, swingEase)
+        : -1.4 + progress * TAU * 1.05)
+      : skill ? lerp(-1.3, 0.9, skillProgress) : run ? -0.75 + runPhase * 0.12 : -0.6;
+    const handX = attack ? 8 + Math.cos(bladeAngle) * 8 : 9;
+    const handY = attack ? -27 + Math.sin(bladeAngle) * 6 : -25;
+    line(ctx, 5, -30, handX, handY, m(dark), 3);
+    rect(ctx, handX - 2, handY - 2, 4, 4, m("#191a20"));
+    drawRuinedBlade(ctx, handX, handY, bladeAngle, attack ? 36 : 32, m);
+    if (attack && progress > 0.25) {
+      ctx.save();
+      ctx.globalAlpha = (1 - Math.abs(progress - 0.55)) * (combo === 4 ? 0.7 : 0.45);
+      const n = combo === 4 ? 12 : 8;
+      for (let i = 0; i < n; i++) {
+        const a = bladeAngle - (combo === 4 ? 1.6 : 1.0) + i * (combo === 4 ? 0.26 : 0.16);
+        line(ctx, handX, handY, handX + Math.cos(a) * (combo === 4 ? 42 : 36), handY + Math.sin(a) * (combo === 4 ? 42 : 36), i % 2 ? soul : "#d8fff6", 1);
+      }
+      ctx.restore();
+    }
+
+    // 头部：白发 + 幽绿眼 + 破碎王冠
+    const hx = 0;
+    rect(ctx, -5 + hx, -40, 10, 9, m(pale));
+    rect(ctx, -4 + hx, -38, 8, 6, m("#f0e6d0"));
+    // 长发
+    polygon(ctx, [[-6 + hx, -41], [6 + hx, -41], [8 + hx, -34], [4 + hx, -30], [-4 + hx, -30], [-8 + hx, -35]], m(hair));
+    rect(ctx, -6 + hx, -40, 12, 4, m(hair));
+    rect(ctx, 4 + hx, -38, 3, 8, m("#dcdcd4"));
+    // 眼睛
+    rect(ctx, -3 + hx, -36, 2, 2, m(soul));
+    rect(ctx, 2 + hx, -36, 2, 2, m(soul));
+    rect(ctx, -3 + hx, -36, 1, 1, "#eafff8");
+    rect(ctx, 3 + hx, -36, 1, 1, "#eafff8");
+    rect(ctx, -1 + hx, -33, 2, 1, m("#8a6a5a"));
+    // 破碎王冠
+    for (let i = 0; i < 4; i++) {
+      const cx = -5 + i * 3.4;
+      polygon(ctx, [[cx + hx, -42], [cx + 1.4 + hx, -47 - (i % 2) * 2], [cx + 2.8 + hx, -42]], m("#3a4a4a"));
+    }
+    rect(ctx, -6 + hx, -42, 12, 1, m(soul));
+    if (hurt) rect(ctx, -4 + hx, -36, 8, 1, "#ffe0e0");
+    if (state === "skill" || state === "firespin") {
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      halo(ctx, 0, -28, 20, soul, 0.25);
+      ctx.restore();
+    }
+    // 细节补完：衣襟衬里、胸腹阴影、爪尖高光、王冠宝石、魂焰火星
+    ctx.save();
+    ctx.globalAlpha = 0.7;
+    rect(ctx, -6, -31, 2, 10, m("#4a5260"));
+    rect(ctx, 4, -31, 2, 10, m("#4a5260"));
+    rect(ctx, -3, -27, 6, 1, m("#8a6a5a"));
+    rect(ctx, -3, -24, 6, 1, m("#8a6a5a"));
+    rect(ctx, -1, -19, 3, 1, m("#e8c35a"));
+    rect(ctx, -2, -33, 4, 1, m("#3a2a23"));
+    ctx.restore();
+    for (let i = 0; i < 3; i++) {
+      line(ctx, clawX - 2, clawY + i * 3, clawX - 8, clawY + 3 + i * 3, m(i === 1 ? "#eafff8" : soul), 1);
+    }
+    rect(ctx, -5 + hx, -44, 1, 2, m("#5fe6c8"));
+    rect(ctx, 4 + hx, -44, 1, 2, m("#5fe6c8"));
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    for (let i = 0; i < 4; i++) {
+      const fy = -30 - ((t * 34 + i * 11) % 26);
+      const fx = -5 + i * 3;
+      rect(ctx, fx, fy, 1, 2, i % 2 ? soul : "#d8fff6");
+    }
+    ctx.restore();
+    ctx.restore();
+  }
+
+  function drawSpecterBlade(ctx, hx, hy, angle, len, m) {
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    const bx = hx + dx * 6;
+    const by = hy + dy * 6;
+    const tx = hx + dx * len;
+    const ty = hy + dy * len;
+    line(ctx, hx - dx * 4, hy - dy * 4, bx, by, "#3a2a52", 2);
+    rect(ctx, bx - 3, by - 2, 6, 3, "#5f4a86");
+    polygon(ctx, [[bx + dy * 4, by - dx * 4], [bx - dy * 4, by + dx * 4], [bx + dx * 3, by + dy * 3]], "#7f5fb8");
+    // 细长魂刀
+    polygon(ctx, [
+      [bx + dy * 3, by - dx * 3],
+      [tx + dy * 2, ty - dx * 2],
+      [tx + dx * 8, ty + dy * 8],
+      [tx - dy * 2, ty + dx * 2],
+      [bx - dy * 3, by + dx * 3]
+    ], m("#d8c4ff"));
+    polygon(ctx, [
+      [bx + dy * 1, by - dx * 1],
+      [tx + dy * 1, ty - dx * 1],
+      [tx + dx * 6, ty + dy * 6],
+      [tx - dy * 1, ty + dx * 1],
+      [bx - dy * 1, by + dx * 1]
+    ], m("#f0e6ff"));
+    ctx.save();
+    ctx.globalAlpha = 0.25;
+    circle(ctx, tx, ty, 4, m("#c07aff"));
+    ctx.restore();
+  }
+
+  function drawSpecterWukongLegacy(ctx, x, y, facing, opts = {}) {
+    const state = opts.state || "idle";
+    const t = opts.t || 0;
+    const progress = clamp(opts.attackProgress || 0, 0, 1);
+    const combo = opts.combo || 1;
+    const skillProgress = clamp(opts.skillProgress || 0, 0, 1);
+    const roll = clamp(opts.roll || 0, 0, 1);
+    const flash = !!opts.flash;
+    const golden = !!opts.golden;
+    const m = (color) => (golden ? goldify(color) : flash ? "#f6ecff" : color);
+    const violet = "#8a5fd6";
+    const violetDark = "#4a3170";
+    const violetLight = "#c9a8ff";
+    const bone = "#efe6f6";
+    const run = state === "run";
+    const jump = state === "jump" || state === "fall";
+    const attack = state === "attack";
+    const skill = state === "skill";
+    const hurt = state === "hurt";
+    const dead = state === "dead";
+    const dash = state === "dash";
+    const runPhase = Math.sin(t * 19);
+
+    shadow(ctx, x, y, dead ? 15 : 11, 0.24);
+    ctx.save();
+    ctx.translate(Math.round(x), Math.round(y));
+    if (facing < 0) ctx.scale(-1, 1);
+    if (dead) {
+      ctx.rotate(-0.16);
+      ctx.translate(0, -2);
+    }
+    const bob = state === "idle" ? Math.round(Math.sin(t * 2.6)) : run ? Math.round(Math.abs(runPhase) * 1.2) : 0;
+    ctx.translate(run ? 1.2 : 0, bob);
+    if (roll > 0) {
+      ctx.translate(0, -15);
+      ctx.rotate(roll * TAU);
+      ctx.translate(0, 15);
+    }
+    if (dash) {
+      ctx.rotate(0.22);
+      ctx.save();
+      ctx.globalAlpha = 0.4;
+      for (let i = 0; i < 4; i++) {
+        rect(ctx, -20 - i * 5, -30 + i * 8, 10, 1, i % 2 ? violetLight : "#f0e6ff");
+      }
+      ctx.restore();
+    }
+    ctx.globalAlpha = 0.9;
+
+    // 身后魂焰与飘带
+    ctx.save();
+    ctx.globalAlpha = 0.45;
+    for (let i = 0; i < 6; i++) {
+      const sx = -7 - i * 4 + Math.sin(t * 4 + i) * 2;
+      const sy = -26 + Math.sin(t * 3 + i * 0.7) * 3 + i * 2;
+      polygon(ctx, [[sx, sy], [sx - 5, sy + 5], [sx - 1, sy + 11], [sx + 3, sy + 5]], m(i % 2 ? violetLight : violet));
+    }
+    // 长飘带
+    polygon(ctx, [[-6, -24], [-12 - Math.sin(t * 3) * 4, -16], [-8, -6], [-3, -14]], m(violetDark));
+    ctx.restore();
+
+    // 腿 / 胫甲
+    const legA = run ? runPhase * 2.2 : 0;
+    for (const [lx, off] of [[-5, legA], [2, -legA]]) {
+      rect(ctx, lx, -15 + Math.max(-2, off), 5, 11, m(violetDark));
+      rect(ctx, lx + 1, -14 + Math.max(-2, off), 3, 8, m(violet));
+      rect(ctx, lx - 1 + off * 0.2, -4 + (jump ? -3 : 0), 7, 4, m("#3a2a52"));
+      rect(ctx, lx, -12 + Math.max(-2, off), 4, 1, m(violetLight));
+    }
+    // 腰甲 / 束带
+    rect(ctx, -7, -19, 14, 4, m(violetDark));
+    rect(ctx, -7, -18, 14, 2, m(violet));
+    rect(ctx, -2, -19, 4, 2, m("#e6d9ff"));
+
+    // 胴甲
+    rect(ctx, -6, -32, 12, 14, m(violet));
+    rect(ctx, -5, -31, 10, 9, m(violetLight));
+    for (let i = 0; i < 3; i++) rect(ctx, -5, -30 + i * 3, 10, 1, m(violetDark));
+    rect(ctx, -6, -32, 12, 2, m(bone));
+    // 大袖肩甲
+    polygon(ctx, [[-6, -33], [-16, -36], [-18, -28], [-8, -26]], m(violetDark));
+    polygon(ctx, [[6, -33], [16, -36], [18, -28], [8, -26]], m(violetDark));
+    rect(ctx, -16, -35, 10, 2, m(violetLight));
+    rect(ctx, 6, -35, 10, 2, m(violetLight));
+    rect(ctx, -14, -31, 6, 2, m(bone));
+    rect(ctx, 8, -31, 6, 2, m(bone));
+
+    // 手臂 + 魂刀
+    const swingEase = 1 - Math.pow(1 - progress, 2.1);
+    const bladeAngle = attack
+      ? (combo === 1 ? lerp(-2.0, 0.8, swingEase)
+        : combo === 2 ? lerp(1.0, -1.8, swingEase)
+        : combo === 3 ? lerp(-2.8, 1.2, swingEase)
+        : -1.4 + progress * TAU * 1.05)
+      : skill ? lerp(-1.3, 0.9, skillProgress) : run ? -0.7 + runPhase * 0.12 : -0.5;
+    const handX = attack ? 8 + Math.cos(bladeAngle) * 8 : 9;
+    const handY = attack ? -26 + Math.sin(bladeAngle) * 6 : -24;
+    line(ctx, 5, -29, handX, handY, m(violetDark), 3);
+    rect(ctx, handX - 2, handY - 2, 4, 4, m(bone));
+    line(ctx, -5, -29, -9, -20, m(violetDark), 3);
+    rect(ctx, -11, -21, 4, 4, m(bone));
+    drawSpecterBlade(ctx, handX, handY, bladeAngle, attack ? 36 : 33, m);
+    if (attack && progress > 0.25) {
+      ctx.save();
+      ctx.globalAlpha = (1 - Math.abs(progress - 0.55)) * (combo === 4 ? 0.7 : 0.45);
+      const n = combo === 4 ? 12 : 8;
+      for (let i = 0; i < n; i++) {
+        const a = bladeAngle - (combo === 4 ? 1.6 : 1.0) + i * (combo === 4 ? 0.26 : 0.16);
+        line(ctx, handX, handY, handX + Math.cos(a) * (combo === 4 ? 42 : 36), handY + Math.sin(a) * (combo === 4 ? 42 : 36), i % 2 ? violetLight : "#f0e6ff", 1);
+      }
+      ctx.restore();
+    }
+
+    // 头：兜盔 + 骷髅面甲
+    const hx = 0;
+    rect(ctx, -5 + hx, -40, 10, 9, m(violet));
+    // 兜盔
+    polygon(ctx, [[-7 + hx, -40], [7 + hx, -40], [8 + hx, -45], [0, -49], [-8 + hx, -45]], m(violetDark));
+    rect(ctx, -8 + hx, -44, 16, 3, m(violet));
+    rect(ctx, -6 + hx, -47, 12, 2, m(violetLight));
+    // 前立
+    polygon(ctx, [[-2 + hx, -49], [0, -56], [2 + hx, -49]], m(bone));
+    rect(ctx, -1 + hx, -55, 2, 6, m("#e6d9ff"));
+    // 骷髅面甲
+    rect(ctx, -5 + hx, -39, 10, 7, m(bone));
+    rect(ctx, -5 + hx, -33, 10, 1, m("#cbb8e0"));
+    rect(ctx, -4 + hx, -37, 3, 3, m(violetDark));
+    rect(ctx, 1 + hx, -37, 3, 3, m(violetDark));
+    rect(ctx, -3 + hx, -36, 2, 2, m(violetLight));
+    rect(ctx, 2 + hx, -36, 2, 2, m(violetLight));
+    rect(ctx, -3 + hx, -36, 1, 1, "#ffffff");
+    rect(ctx, 3 + hx, -36, 1, 1, "#ffffff");
+    for (let i = 0; i < 4; i++) rect(ctx, -3 + hx + i * 2, -34, 1, 2, m("#b9a6cf"));
+    if (hurt) rect(ctx, -4 + hx, -37, 8, 1, "#ffffff");
+    if (state === "skill" || state === "firespin") {
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      halo(ctx, 0, -28, 20, violetLight, 0.25);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  function drawSpecterWukong(ctx, x, y, facing, opts = {}) {
+    const state = opts.state || "idle";
+    const t = opts.t || 0;
+    const progress = clamp(opts.attackProgress || 0, 0, 1);
+    const combo = opts.combo || 1;
+    const skillProgress = clamp(opts.skillProgress || 0, 0, 1);
+    const roll = clamp(opts.roll || 0, 0, 1);
+    const flash = !!opts.flash;
+    const golden = !!opts.golden;
+    const m = (color) => (golden ? goldify(color) : flash ? "#f8f2ff" : color);
+    const deep = "#241a38";
+    const dark = "#3a2a52";
+    const mid = "#6b4fa8";
+    const base = "#8a5fd6";
+    const light = "#b98cff";
+    const hi = "#e0ccff";
+    const bone = "#f4eeff";
+    const run = state === "run";
+    const jump = state === "jump" || state === "fall";
+    const attack = state === "attack";
+    const skill = state === "skill";
+    const hurt = state === "hurt";
+    const dead = state === "dead";
+    const dash = state === "dash";
+    const runPhase = Math.sin(t * 19);
+
+    // 身后魂域光晕
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    halo(ctx, x, y - 24, 26, light, 0.45);
+    ctx.restore();
+
+    shadow(ctx, x, y, dead ? 16 : 12, 0.26);
+    ctx.save();
+    ctx.translate(Math.round(x), Math.round(y));
+    if (facing < 0) ctx.scale(-1, 1);
+    if (dead) {
+      ctx.rotate(-0.16);
+      ctx.translate(0, -2);
+    }
+    const bob = state === "idle" ? Math.round(Math.sin(t * 2.6)) : run ? Math.round(Math.abs(runPhase) * 1.2) : 0;
+    ctx.translate(run ? 1.2 : 0, bob);
+    if (roll > 0) {
+      ctx.translate(0, -15);
+      ctx.rotate(roll * TAU);
+      ctx.translate(0, 15);
+    }
+    if (dash) {
+      ctx.rotate(0.22);
+      ctx.save();
+      ctx.globalAlpha = 0.4;
+      for (let i = 0; i < 4; i++) rect(ctx, -22 - i * 5, -30 + i * 8, 11, 1, i % 2 ? light : hi);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 0.94;
+
+    // 长披风（三层）
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    for (let layer = 0; layer < 3; layer++) {
+      const col = layer === 0 ? deep : layer === 1 ? dark : mid;
+      const len = 20 - layer * 3;
+      const wid = 12 + layer * 2;
+      const wave = Math.sin(t * 3.4 + layer * 0.9) * 4;
+      polygon(ctx, [
+        [-4, -30 + layer * 2],
+        [-4 - wid, -24 - len * 0.2 + wave],
+        [-6 - wid * 1.1, -10 + wave * 1.4],
+        [-1, -8 + layer * 3],
+        [2, -18 + layer * 2]
+      ], col);
+    }
+    // 披风亮边
+    ctx.globalAlpha = 0.75;
+    line(ctx, -5, -30, -16 - Math.sin(t * 3.4) * 3, -22, light, 1);
+    line(ctx, -2, -20, -14 - Math.sin(t * 3.4 + 1) * 3, -9, mid, 1);
+    ctx.restore();
+
+    // 魂焰（身后上升）
+    ctx.save();
+    ctx.globalAlpha = 0.42;
+    for (let i = 0; i < 5; i++) {
+      const fy = -14 - ((t * 26 + i * 13) % 34);
+      const fx = -6 - i * 3 + Math.sin(t * 4 + i) * 2;
+      polygon(ctx, [[fx, fy], [fx - 3, fy + 5], [fx, fy + 9], [fx + 3, fy + 5]], m(i % 2 ? light : base));
+    }
+    ctx.restore();
+
+    // 腿 / 袴
+    const legA = run ? runPhase * 2.4 : 0;
+    for (const [lx, off] of [[-6, legA], [1, -legA]]) {
+      const lift = jump ? -3 : 0;
+      rect(ctx, lx - 1, -17 + Math.max(-2, off), 7, 12, m(dark));
+      rect(ctx, lx, -16 + Math.max(-2, off), 5, 9, m(mid));
+      rect(ctx, lx, -15 + Math.max(-2, off), 5, 1, m(light));
+      // 胫甲
+      rect(ctx, lx - 1, -8 + Math.max(-2, off), 7, 6, m(base));
+      rect(ctx, lx - 1, -8 + Math.max(-2, off), 7, 1, m(hi));
+      rect(ctx, lx + 1, -6 + Math.max(-2, off), 3, 1, m(dark));
+      // 足
+      rect(ctx, lx - 2 + off * 0.2, -3 + lift, 8, 3, m(deep));
+      rect(ctx, lx - 2 + off * 0.2, -1 + lift, 8, 1, m(dark));
+    }
+
+    // 草摺（裙甲三片）
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 3; i++) {
+        const px0 = side < 0 ? -10 - i : 3 + i;
+        const py0 = -16 + i * 1;
+        polygon(ctx, [[px0, py0], [px0 + 4, py0], [px0 + 4, py0 + 8], [px0, py0 + 7]], m(i === 1 ? base : mid));
+        rect(ctx, px0, py0, 4, 1, m(hi));
+        rect(ctx, px0 + 1, py0 + 3, 2, 1, m(dark));
+      }
+    }
+
+    // 胴甲（札甲）带横向缀线
+    rect(ctx, -7, -32, 14, 15, m(mid));
+    rect(ctx, -6, -31, 12, 12, m(base));
+    for (let i = 0; i < 4; i++) {
+      rect(ctx, -6, -29 + i * 3, 12, 1, m(dark));
+      rect(ctx, -6, -28 + i * 3, 12, 1, m(light));
+    }
+    rect(ctx, -7, -32, 14, 2, m(hi));
+    rect(ctx, -1, -28, 3, 4, m(bone));
+    rect(ctx, 0, -27, 1, 2, m(base));
+    // 腰带与结
+    rect(ctx, -7, -19, 14, 3, m(deep));
+    rect(ctx, -7, -19, 14, 1, m(light));
+    rect(ctx, 4, -20, 4, 4, m(deep));
+    polygon(ctx, [[6, -16], [5, -8], [8, -9], [9, -16]], m(dark));
+
+    // 大袖（三层肩甲）
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 3; i++) {
+        const sx = side < 0 ? -7 - (3 - i) : 7 + (3 - i);
+        const sy = -33 + i * 3;
+        const w = 6 + i * 1;
+        polygon(ctx, [[sx, sy], [sx + side * w, sy + 1], [sx + side * w, sy + 5], [sx, sy + 4]], m(i === 0 ? base : mid));
+        rect(ctx, side < 0 ? sx - w : sx, sy, w, 1, m(hi));
+        rect(ctx, sx + side * (w - 2), sy + 2, 1, 1, m(bone));
+      }
+    }
+
+    // 手臂 + 魂刀
+    const swingEase = 1 - Math.pow(1 - progress, 2.1);
+    const bladeAngle = attack
+      ? (combo === 1 ? lerp(-2.05, 0.75, swingEase)
+        : combo === 2 ? lerp(1.05, -1.85, swingEase)
+        : combo === 3 ? lerp(-2.85, 1.2, swingEase)
+        : -1.4 + progress * TAU * 1.05)
+      : skill ? lerp(-1.35, 0.95, skillProgress) : run ? -0.72 + runPhase * 0.12 : -0.5;
+    const handX = attack ? 8 + Math.cos(bladeAngle) * 8 : 9;
+    const handY = attack ? -27 + Math.sin(bladeAngle) * 6 : -25;
+    // 左臂
+    line(ctx, -6, -30, -10, -21, m(dark), 3);
+    rect(ctx, -12, -22, 4, 4, m(base));
+    rect(ctx, -12, -22, 4, 1, m(hi));
+    rect(ctx, -12, -19, 4, 2, m(bone));
+    // 右臂
+    line(ctx, 6, -30, handX, handY, m(dark), 3);
+    rect(ctx, handX - 2, handY - 2, 4, 4, m(bone));
+    // 刀鞘
+    ctx.save();
+    ctx.globalAlpha = 0.8;
+    line(ctx, -8, -20, -16, -10, m(deep), 3);
+    ctx.restore();
+    drawSpecterBlade(ctx, handX, handY, bladeAngle, attack ? 38 : 34, m);
+    if (attack && progress > 0.25) {
+      ctx.save();
+      ctx.globalAlpha = (1 - Math.abs(progress - 0.55)) * (combo === 4 ? 0.75 : 0.5);
+      const n = combo === 4 ? 12 : 8;
+      for (let i = 0; i < n; i++) {
+        const a = bladeAngle - (combo === 4 ? 1.6 : 1.0) + i * (combo === 4 ? 0.26 : 0.16);
+        line(ctx, handX, handY, handX + Math.cos(a) * (combo === 4 ? 44 : 38), handY + Math.sin(a) * (combo === 4 ? 44 : 38), i % 2 ? light : hi, 1);
+      }
+      ctx.restore();
+    }
+
+    // 头部：兜盔 + 骷髅面甲
+    const hx = 0;
+    // 颈甲（三段）
+    for (let i = 0; i < 3; i++) {
+      polygon(ctx, [[-8 + i, -34 - i * 2], [8 - i, -34 - i * 2], [7 - i, -31 - i * 2], [-7 + i, -31 - i * 2]], m(i === 1 ? mid : dark));
+      rect(ctx, -7 + i, -34 - i * 2, 14 - i * 2, 1, m(light));
+    }
+    // 面部
+    rect(ctx, -5, -42, 10, 9, m(bone));
+    rect(ctx, -5, -34, 10, 1, m(light));
+    // 兜盔主体
+    polygon(ctx, [[-8, -42], [8, -42], [9, -47], [4, -51], [-4, -51], [-9, -47]], m(mid));
+    rect(ctx, -8, -46, 16, 4, m(base));
+    rect(ctx, -6, -49, 12, 3, m(mid));
+    rect(ctx, -6, -49, 12, 1, m(hi));
+    rect(ctx, -9, -44, 18, 2, m(dark));
+    // 前立（月牙）
+    polygon(ctx, [[-1, -51], [0, -58], [1, -51]], m(bone));
+    polygon(ctx, [[-7, -52], [-2, -55], [-1, -53], [-6, -50]], m(hi));
+    polygon(ctx, [[7, -52], [2, -55], [1, -53], [6, -50]], m(hi));
+    // 骷髅面甲
+    rect(ctx, -4, -41, 8, 7, m(bone));
+    rect(ctx, -3, -40, 3, 3, m(deep));
+    rect(ctx, 1, -40, 3, 3, m(deep));
+    rect(ctx, -2, -39, 1, 2, m(hi));
+    rect(ctx, 2, -39, 1, 2, m(hi));
+    rect(ctx, -3, -39, 1, 1, "#ffffff");
+    rect(ctx, 3, -39, 1, 1, "#ffffff");
+    for (let i = 0; i < 3; i++) rect(ctx, -3 + i * 3, -36, 1, 2, m("#c8b4e4"));
+    rect(ctx, -2, -35, 5, 1, m(dark));
+    // 面颊护板
+    rect(ctx, -8, -41, 4, 6, m(dark));
+    rect(ctx, 4, -41, 4, 6, m(dark));
+    rect(ctx, -8, -41, 4, 1, m(light));
+    rect(ctx, 4, -41, 4, 1, m(light));
+
+    // 肩头魂焰
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    for (let i = 0; i < 4; i++) {
+      const fy = -36 - ((t * 30 + i * 9) % 16);
+      const fx = -9 + i * 6;
+      polygon(ctx, [[fx, fy], [fx - 2, fy + 4], [fx, fy + 7], [fx + 2, fy + 4]], m(i % 2 ? hi : light));
+    }
+    ctx.restore();
+
+    if (hurt) rect(ctx, -4, -39, 8, 1, "#ffffff");
+    if (state === "skill" || state === "firespin") {
+      ctx.save();
+      ctx.globalAlpha = 0.25;
+      halo(ctx, 0, -28, 22, light, 0.3);
+      ctx.restore();
+    }
     ctx.restore();
   }
 
@@ -1173,6 +1913,14 @@
     const c = (color) => (golden ? goldify(color) : flash ? "#fff4df" : color);
     if (mecha) {
       drawMechaWukong(ctx, x, y, facing, opts);
+      return;
+    }
+    if (skin === "ruined") {
+      drawRuinedWukong(ctx, x, y, facing, opts);
+      return;
+    }
+    if (skin === "specter") {
+      drawSpecterWukong(ctx, x, y, facing, opts);
       return;
     }
 
@@ -1511,6 +2259,37 @@
       }
     }
 
+    // 细节补完：受光边、背侧阴影、腰带铆钉、尾尖与靴面高光
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    line(ctx, 8, -31, 8, -7, c("#ffe6b0"), 1);
+    line(ctx, 6, -31, 6, -9, c("#ffd27a"), 1);
+    ctx.globalAlpha = 0.22;
+    rect(ctx, -9, -30, 1, 22, c("#0d0a12"));
+    rect(ctx, -8, -12, 1, 8, c("#0d0a12"));
+    ctx.restore();
+    rect(ctx, -6, -14, 1, 1, c("#f2c55e"));
+    rect(ctx, 4, -14, 1, 1, c("#f2c55e"));
+    rect(ctx, -1, -13, 3, 1, c("#ffe9a8"));
+    if (gear.legs) {
+      rect(ctx, -5, -8, 1, 3, c("#ffe6b0"));
+      rect(ctx, 3, -8, 1, 3, c("#ffe6b0"));
+    }
+    if (gear.shoes) {
+      rect(ctx, -5, -2, 5, 1, c("#fff0c8"));
+      rect(ctx, 3, -2, 5, 1, c("#fff0c8"));
+    }
+    if (gear.body) {
+      rect(ctx, -6, -21, 1, 1, c("#fff4d0"));
+      rect(ctx, -6, -17, 1, 1, c("#fff4d0"));
+      rect(ctx, 5, -21, 1, 1, c("#fff4d0"));
+      rect(ctx, 5, -17, 1, 1, c("#fff4d0"));
+      rect(ctx, 6 + torsoShift, -22, 1, 8, c("#ffe6b0"));
+    }
+    rect(ctx, tailBase[0] - 17 + tailSway, tailBase[1] - 10, 2, 1, c("#f0c88a"));
+    rect(ctx, -3 + hx, -34, 1, 3, c("#b87a45"));
+    rect(ctx, 5 + hx, -30, 1, 3, c("#c98f52"));
+
     ctx.restore();
 
     if (roll > 0 && roll < 1) {
@@ -1609,6 +2388,7 @@
       case "leopard": drawBearBoss(ctx, e, t, windup, attack, c); break;
       case "rhinoBro": drawGoldHornBoss(ctx, e, t, windup, attack, c); break;
       case "mara": drawChaosBoss(ctx, e, t, windup, attack, c); break;
+      case "houyi": drawHouyiBoss(ctx, e, t, windup, attack, c); break;
       default: drawMonkeyEnemy(ctx, e, t, phase, run, windup, attack, c); break;
     }
 
@@ -1616,6 +2396,130 @@
 
     if (!dead && e.hp < e.maxHp && e.kind !== "boss") {
       drawEnemyHealth(ctx, e);
+    }
+  }
+
+  function drawHouyiBoss(ctx, e, t, windup, attack, c) {
+    const demon = !!e.demon;
+    const charging = e.pattern === "chargedShot" && e.state === "windup";
+    const cast = e.state === "cast" || e.transforming > 0;
+    const pal = demon
+      ? { skin: "#cbb6e6", robe: "#3a1c52", robe2: "#56287a", trim: "#b06bff", hair: "#f0e0ff", glow: "#ff8ad8", bow: "#4a2470", arrow: "#c9a8ff" }
+      : { skin: "#e8c9a0", robe: "#8a4a22", robe2: "#b0642c", trim: "#ffd76a", hair: "#2f2a28", glow: "#ffb03d", bow: "#6b3a1a", arrow: "#ffe9a8" };
+    const p = (color) => c(color);
+    const breathe = Math.round(Math.sin(t * 2.4));
+
+    // 脚下光环
+    ctx.save();
+    ctx.globalAlpha = demon ? 0.4 : 0.28;
+    halo(ctx, 0, 0, 34, pal.glow, 0.3);
+    ctx.restore();
+
+    // 长袍下摆
+    polygon(ctx, [[-14, -26], [14, -26], [18, -2], [-18, -2]], p(pal.robe));
+    polygon(ctx, [[-10, -26], [10, -26], [13, -6], [-13, -6]], p(pal.robe2));
+    for (let i = -2; i <= 2; i++) {
+      line(ctx, i * 6, -24, i * 8, -2, p(pal.trim), 1);
+    }
+    // 腰带
+    rect(ctx, -14, -30, 28, 5, p(pal.robe));
+    rect(ctx, -14, -30, 28, 2, p(pal.trim));
+    rect(ctx, -4, -29, 8, 3, demon ? p("#ff8ad8") : p("#ffd76a"));
+
+    // 躯干与肩甲
+    rect(ctx, -13, -46, 26, 18, p(pal.robe));
+    rect(ctx, -11, -45, 22, 12, p(pal.robe2));
+    polygon(ctx, [[-13, -46], [-24, -50], [-26, -40], [-14, -37]], p(pal.robe));
+    polygon(ctx, [[13, -46], [24, -50], [26, -40], [14, -37]], p(pal.robe));
+    rect(ctx, -22, -49, 9, 2, p(pal.trim));
+    rect(ctx, 13, -49, 9, 2, p(pal.trim));
+    // 胸口纹章
+    circle(ctx, 0, -41, 5, p(demon ? "#7a2f9f" : "#c98a3a"));
+    circle(ctx, 0, -41, 3, p(pal.glow));
+
+    // 头部
+    const hy = -46 + breathe;
+    rect(ctx, -7, hy - 12, 14, 13, p(pal.skin));
+    rect(ctx, -6, hy - 11, 12, 9, p("#f2ddc0"));
+    // 长发/发髻
+    polygon(ctx, [[-8, hy - 13], [8, hy - 13], [10, hy - 6], [6, hy + 2], [-6, hy + 2], [-10, hy - 7]], p(pal.hair));
+    rect(ctx, -8, hy - 14, 16, 4, p(pal.hair));
+    rect(ctx, -3, hy - 18, 6, 4, p(pal.hair));
+    if (demon) {
+      // 魔角
+      polygon(ctx, [[-7, hy - 14], [-13, hy - 24], [-4, hy - 16]], p("#b06bff"));
+      polygon(ctx, [[7, hy - 14], [13, hy - 24], [4, hy - 16]], p("#b06bff"));
+      rect(ctx, -4, hy - 8, 3, 2, p("#ff8ad8"));
+      rect(ctx, 1, hy - 8, 3, 2, p("#ff8ad8"));
+    } else {
+      // 头带
+      rect(ctx, -8, hy - 12, 16, 2, p("#e8d6b0"));
+      rect(ctx, -3, hy - 9, 2, 2, p("#3a2a22"));
+      rect(ctx, 2, hy - 9, 2, 2, p("#3a2a22"));
+    }
+
+    // 手臂 + 神弓
+    const drawAngle = attack ? -1 + Math.sin(t * 20) * 0.3 : charging ? -1.35 : windup ? -1.15 : -0.85;
+    const bx = 20;
+    const by = -40 + breathe;
+    line(ctx, 10, -43, bx, by, p(pal.skin), 3);
+    line(ctx, -10, -43, -16, -34, p(pal.skin), 3);
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.rotate(demon ? 0.1 : 0.05);
+    // 弓身
+    ctx.beginPath();
+    ctx.strokeStyle = p(pal.bow);
+    ctx.lineWidth = 3;
+    ctx.arc(0, 0, 20, -1.25, 1.25);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.strokeStyle = p(pal.trim);
+    ctx.lineWidth = 1;
+    ctx.arc(0, 0, 20, -1.25, 1.25);
+    ctx.stroke();
+    // 弓弦
+    const pull = charging ? 10 : attack ? 3 : 5;
+    line(ctx, Math.cos(-1.25) * 20, Math.sin(-1.25) * 20, -pull, 0, p("#efe6d2"), 1);
+    line(ctx, -pull, 0, Math.cos(1.25) * 20, Math.sin(1.25) * 20, p("#efe6d2"), 1);
+    // 搭箭
+    if (charging || attack || windup) {
+      line(ctx, -pull, 0, 26, 0, p(pal.arrow), 2);
+      polygon(ctx, [[26, 0], [20, -3], [20, 3]], p(pal.arrow));
+      if (charging) {
+        ctx.save();
+        ctx.globalAlpha = 0.4 + Math.sin(t * 16) * 0.2;
+        halo(ctx, -pull, 0, 16 + (e.attackT || 0) * 18, pal.glow, 0.4);
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+
+    // 蓄力/施法特效
+    if (charging) {
+      ctx.save();
+      ctx.globalAlpha = 0.35 + (e.attackT || 0) * 0.4;
+      for (let i = 0; i < 6; i++) {
+        const rr = 12 + i * 5 + Math.sin(t * 8 + i) * 2;
+        circle(ctx, bx, by, rr * 0.16, i % 2 ? pal.glow : "#fff2b8");
+      }
+      ctx.restore();
+    }
+    if (cast) {
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      halo(ctx, 0, -34, 30, pal.glow, 0.3);
+      ctx.restore();
+    }
+    // 九日印记（普通形态头顶环）
+    if (!demon && e.hp / e.maxHp <= 0.5) {
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      for (let i = 0; i < 9; i++) {
+        const a = t * 1.2 + (i / 9) * TAU;
+        rect(ctx, Math.cos(a) * 26, -34 + Math.sin(a) * 9, 2, 2, "#ffcf7a");
+      }
+      ctx.restore();
     }
   }
 
@@ -2512,6 +3416,32 @@
       rect(ctx, -11, -3, 3, 2, "#a8a18e");
       rect(ctx, -11, 1, 3, 2, "#a8a18e");
       ctx.restore();
+    } else if (p.type === "arrow") {
+      const ang = Math.atan2(p.vy || 0, p.vx || 1);
+      const col = p.color || "#ffd76a";
+      const big = !!p.big;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(ang);
+      ctx.save();
+      ctx.globalAlpha = big ? 0.5 : 0.35;
+      halo(ctx, 0, 0, big ? 16 : 10, col, 0.35);
+      ctx.restore();
+      // 箭杆
+      line(ctx, -14, 0, 12, 0, "#e8dcc0", big ? 3 : 2);
+      // 箭头
+      polygon(ctx, [[16, 0], [8, -4], [8, 4]], col);
+      polygon(ctx, [[13, 0], [9, -2], [9, 2]], "#fff6e0");
+      // 尾羽
+      polygon(ctx, [[-14, 0], [-20, -4], [-11, -2]], big ? "#ff8a3d" : col);
+      polygon(ctx, [[-14, 0], [-20, 4], [-11, 2]], big ? "#ff8a3d" : col);
+      if (big) {
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        for (let i = 0; i < 4; i++) rect(ctx, -22 - i * 7, -1, 6, 2, i % 2 ? "#ff8a3d" : "#ffd76a");
+        ctx.restore();
+      }
+      ctx.restore();
     } else if (p.type === "darkOrb") {
       halo(ctx, p.x, p.y, 8, "#9f5bd9", 0.2);
       circle(ctx, p.x, p.y, 4, "#5d2c84");
@@ -3147,6 +4077,46 @@
       circle(ctx, -2, -2, 1, "#5f92c4");
       ctx.restore();
       rect(ctx, -2, 8, 4, 3, "#8a6420");
+    } else if (id === "soulBanner") {
+      halo(ctx, 0, 0, 11, "#e05a8a", 0.2);
+      line(ctx, 0, -9, 0, 10, "#3a2a34", 2);
+      polygon(ctx, [[1, -9], [9, -6], [1, -1]], "#e05a8a");
+      polygon(ctx, [[1, -5], [7, -3], [1, 1]], "#f2a0c0");
+      for (let i = 0; i < 3; i++) {
+        const a = t * 2 + i * 2.1;
+        circle(ctx, Math.cos(a) * 7, -2 + Math.sin(a) * 5, 1.5, i % 2 ? "#ffd0e4" : "#e05a8a");
+      }
+    } else if (id === "dragonPearl") {
+      halo(ctx, 0, 0, 12, "#5fd6c8", 0.22);
+      circle(ctx, 0, 0, 8, "#1f5f58");
+      circle(ctx, 0, 0, 6, "#5fd6c8");
+      circle(ctx, -1, -1, 3, "#d8fff8");
+      for (let i = 0; i < 3; i++) {
+        const a = t * 1.6 + i * 2.1;
+        rect(ctx, Math.cos(a) * 9, Math.sin(a) * 9, 2, 2, "#a8fff0");
+      }
+      rect(ctx, -2, 8, 4, 3, "#2f6f68");
+    } else if (id === "starMirror") {
+      halo(ctx, 0, 0, 12, "#a8b8ff", 0.22);
+      ctx.save();
+      ctx.rotate(spin * 0.5);
+      polygon(ctx, [[0, -9], [8, 0], [0, 9], [-8, 0]], "#3a4a86");
+      polygon(ctx, [[0, -6], [5, 0], [0, 6], [-5, 0]], "#a8b8ff");
+      circle(ctx, 0, 0, 2, "#f0f4ff");
+      ctx.restore();
+      rect(ctx, -2, 8, 4, 3, "#5f6f9e");
+    } else if (id === "chaosPearl") {
+      halo(ctx, 0, 0, 12, "#ff8a4a", 0.24);
+      ctx.save();
+      ctx.rotate(-spin * 0.8);
+      circle(ctx, 0, 0, 8, "#5a2a18");
+      circle(ctx, 0, 0, 6, "#ff8a4a");
+      circle(ctx, -1, -1, 3, "#ffe0b8");
+      for (let i = 0; i < 3; i++) {
+        const a = -t * 1.8 + i * 2.1;
+        rect(ctx, Math.cos(a) * 9, Math.sin(a) * 9, 2, 2, "#ffd0a0");
+      }
+      ctx.restore();
     }
     ctx.restore();
   }
@@ -3354,6 +4324,115 @@
     ctx.restore();
   }
 
+  function drawSpiritSword(ctx, x, y, t, angle, color, hit) {
+    ctx.save();
+    ctx.translate(Math.round(x), Math.round(y));
+    ctx.rotate(angle);
+    const c = color || "#8fe8ff";
+    ctx.save();
+    ctx.globalAlpha = hit > 0 ? 0.5 : 0.28;
+    halo(ctx, 0, 0, 14, c, 0.35);
+    ctx.restore();
+    // 剑刃
+    polygon(ctx, [[-12, -2], [10, -2], [15, 0], [10, 2], [-12, 2]], c);
+    polygon(ctx, [[-8, -1], [9, -1], [12, 0], [9, 1], [-8, 1]], "#eaffff");
+    rect(ctx, -14, -3, 4, 6, "#3f5a78");
+    rect(ctx, -16, -1, 3, 2, "#ffd36a");
+    ctx.restore();
+  }
+
+  function drawMinion(ctx, mn, t, opts = {}) {
+    const kind = mn.kind || "monkey";
+    const swing = mn.swing > 0 ? 1 - mn.swing / 0.24 : 0;
+    const bob = Math.round(Math.sin(t * 5 + (mn.slot || 0)) * 1);
+    const run = Math.abs((mn.vx || 0)) > 1;
+    ctx.save();
+    ctx.translate(Math.round(mn.x), Math.round(mn.y + bob));
+    if (mn.facing < 0) ctx.scale(-1, 1);
+    const legSwing = Math.sin(t * 14 + (mn.slot || 0) * 2) * 2;
+    if (kind === "robot") {
+      // 小机器人
+      rect(ctx, -4, -10, 3, 8, "#3f5a78");
+      rect(ctx, 1, -10, 3, 8, "#5d7694");
+      rect(ctx, -5, -3, 5, 3, "#7e9bb8");
+      rect(ctx, 1, -3, 5, 3, "#7e9bb8");
+      rect(ctx, -5, -16, 10, 7, "#7e9bb8");
+      rect(ctx, -3, -15, 6, 4, "#bfe4ff");
+      rect(ctx, -3, -15, 6, 1, "#8fe8ff");
+      rect(ctx, -4, -18, 8, 3, "#526b88");
+      rect(ctx, -2, -17, 4, 1, "#8fe8ff");
+      line(ctx, 3, -15, 8 + swing * 4, -12 - swing * 4, "#3f5a78", 2);
+      rect(ctx, 7 + swing * 4, -13 - swing * 4, 3, 3, "#ffd36a");
+      rect(ctx, -2, -1, 4, 1, "#8fe8ff");
+    } else if (kind === "specter") {
+      // 幽魂兵
+      rect(ctx, -4, -9, 3, 8, "#4a3170");
+      rect(ctx, 1, -9, 3, 8, "#5f4a86");
+      rect(ctx, -5, -2, 5, 2, "#3a2a52");
+      rect(ctx, 1, -2, 5, 2, "#3a2a52");
+      rect(ctx, -4, -15, 8, 7, "#8a5fd6");
+      rect(ctx, -4, -16, 8, 2, "#efe6f6");
+      polygon(ctx, [[-6, -16], [6, -16], [5, -21], [0, -24], [-5, -21]], "#4a3170");
+      rect(ctx, -4, -14, 3, 2, "#c9a8ff");
+      rect(ctx, 1, -14, 3, 2, "#c9a8ff");
+      polygon(ctx, [[-3, -22], [0, -27], [3, -22]], "#efe6f6");
+      line(ctx, 3, -13, 7 + swing * 5, -10 - swing * 5, "#4a3170", 2);
+      polygon(ctx, [[6 + swing * 5, -11 - swing * 5], [14 + swing * 5, -13 - swing * 5], [7 + swing * 5, -8 - swing * 5]], "#d8c4ff");
+    } else if (kind === "ruined") {
+      // 破败兵团
+      rect(ctx, -4, -9, 3, 8, "#22242c");
+      rect(ctx, 1, -9, 3, 8, "#343844");
+      rect(ctx, -5, -2, 5, 2, "#191a20");
+      rect(ctx, 1, -2, 5, 2, "#191a20");
+      rect(ctx, -4, -15, 8, 7, "#e6dcc6");
+      rect(ctx, -5, -13, 2, 6, "#22242c");
+      rect(ctx, 3, -13, 2, 6, "#22242c");
+      polygon(ctx, [[-4, -16], [4, -16], [5, -12], [-5, -12]], "#f2f2ee");
+      rect(ctx, -2, -13, 1, 1, "#5fe6c8");
+      rect(ctx, 1, -13, 1, 1, "#5fe6c8");
+      line(ctx, 3, -13, 7 + swing * 5, -10 - swing * 5, "#22242c", 2);
+      polygon(ctx, [[6 + swing * 5, -11 - swing * 5], [13 + swing * 5, -13 - swing * 5], [7 + swing * 5, -8 - swing * 5]], "#5fe6c8");
+    } else {
+      // 小猴子
+      rect(ctx, -4, -8, 3, 7, "#7c482a");
+      rect(ctx, 1, -8, 3, 7, "#8d542f");
+      rect(ctx, -5, -2, 5, 2, "#5f3620");
+      rect(ctx, 1, -2, 5, 2, "#5f3620");
+      rect(ctx, -4, -14, 8, 7, "#9b6037");
+      rect(ctx, -3, -13, 6, 4, "#dca676");
+      rect(ctx, -5, -16, 10, 3, "#8d542f");
+      rect(ctx, -2, -12, 1, 1, "#241611");
+      rect(ctx, 2, -12, 1, 1, "#241611");
+      rect(ctx, -3, -15, 6, 1, "#d9a53b");
+      line(ctx, 3, -13, 7 + swing * 5, -10 - swing * 5, "#8d542f", 2);
+      line(ctx, 7 + swing * 5, -10 - swing * 5, 12 + swing * 5, -14 - swing * 5, "#d9a53b", 2);
+    }
+    ctx.restore();
+    if (opts.showTimer) {
+      rect(ctx, mn.x - 8, mn.y - 24, 16, 2, "rgba(10,12,18,0.7)");
+      rect(ctx, mn.x - 8, mn.y - 24, 16 * clamp(mn.duration / (mn.maxDuration || 10), 0, 1), 2, "#7ce9cb");
+    }
+  }
+
+  function drawRocket(ctx, x, y, angle, t) {
+    ctx.save();
+    ctx.translate(Math.round(x), Math.round(y));
+    ctx.rotate(angle + Math.PI / 2);
+    // 尾焰
+    ctx.save();
+    ctx.globalAlpha = 0.55 + Math.sin(t * 22) * 0.15;
+    polygon(ctx, [[-2.5, 4], [2.5, 4], [0, 11 + Math.sin(t * 26) * 2]], "#ffb03d");
+    polygon(ctx, [[-1.2, 4], [1.2, 4], [0, 7]], "#fff2b8");
+    ctx.restore();
+    // 弹体
+    rect(ctx, -2, -6, 4, 10, "#d9dee8");
+    rect(ctx, -2, -6, 4, 1, "#f4f7ff");
+    polygon(ctx, [[-2, -6], [2, -6], [0, -10]], "#ff6b52");
+    rect(ctx, -3, 3, 6, 2, "#8f97a8");
+    rect(ctx, -1, -3, 2, 2, "#ffd76a");
+    ctx.restore();
+  }
+
   window.Art = {
     W, H, FLOOR,
     rect, px, circle, ellipse, line, polygon, halo, shadow, drawText,
@@ -3365,7 +4444,7 @@
     drawSlash, drawHitSpark, drawShockwave, drawFlame,
     drawFireTornado, drawClone, drawStaffSlamEffect, drawEyeBeam, drawEyeBurst, drawBottleAura,
     drawGearGlyph, drawLootBeam,
-    drawPortrait, drawCharacterPreview, drawArtifactModel, drawWings,
+    drawPortrait, drawCharacterPreview, drawArtifactModel, drawWings, drawMinion, drawSpiritSword, drawRocket, drawNineSunBackground,
     drawPeachTree, drawCrystalCluster, drawDeadTree, drawGhostFire
   };
 })();

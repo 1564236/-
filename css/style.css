@@ -296,6 +296,41 @@ kbd {
   background: linear-gradient(90deg, #d1a43c, #ffe08a 55%, #f7c44e);
 }
 
+.rage-bar {
+  height: 0.6em;
+  margin-top: 0.24em;
+}
+
+.rage-bar > i {
+  width: 0;
+  background: linear-gradient(90deg, #6c3fd0, #b06bff 55%, #ff8ad8);
+  box-shadow: inset 0 1px 0 rgba(255, 230, 255, 0.5);
+  transition: width 0.12s linear;
+}
+
+.rage-bar.ready {
+  animation: rage-ready 0.9s ease-in-out infinite;
+}
+
+.rage-bar.ready > i {
+  background: linear-gradient(90deg, #ff8a3d, #ffd76a 45%, #fff2b8);
+}
+
+.rage-bar.active > i {
+  background: linear-gradient(90deg, #ff3d6e, #ff9a3d 50%, #ffe08a);
+  box-shadow: 0 0 0.6em rgba(255, 140, 60, 0.85);
+}
+
+@keyframes rage-ready {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.45); }
+}
+
+.rage-bar > span {
+  font-size: 0.5em;
+  color: #ffe9f6;
+}
+
 .bar > span {
   position: absolute;
   inset: 0;
@@ -1629,6 +1664,186 @@ kbd {
   letter-spacing: 0;
 }
 
+.title-group-heading {
+  grid-column: 1 / -1;
+  margin: 0.5em 0 0.1em;
+  padding: 0.28em 0.6em;
+  border-left: 3px solid #c79a47;
+  background: linear-gradient(90deg, rgba(120, 88, 26, 0.35), rgba(30, 24, 10, 0));
+  color: #ffd875;
+  font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
+  font-size: 0.82em;
+  letter-spacing: 0.06em;
+}
+
+/* 称号边框：不同称号对应不同边框风格 */
+.title-card {
+  position: relative;
+  border-width: 2px;
+  border-style: solid;
+}
+
+.title-card::before,
+.title-card::after {
+  content: "";
+  position: absolute;
+  width: 0.75em;
+  height: 0.75em;
+  border: 2px solid currentColor;
+  pointer-events: none;
+}
+
+.title-card::before {
+  top: -2px;
+  left: -2px;
+  border-right: none;
+  border-bottom: none;
+}
+
+.title-card::after {
+  right: -2px;
+  bottom: -2px;
+  border-left: none;
+  border-top: none;
+}
+
+.title-card .title-frame-tag {
+  display: inline-block;
+  margin-top: 0.3em;
+  padding: 0.05em 0.4em;
+  border-radius: 0.25em;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.7em;
+  letter-spacing: 0.04em;
+}
+
+.title-frame-gold {
+  color: #ffd76a;
+  border-color: #ffd76a;
+  background: linear-gradient(135deg, rgba(120, 88, 26, 0.4), rgba(20, 16, 8, 0.7));
+  box-shadow: 0 0 0.8em rgba(255, 200, 90, 0.3);
+}
+
+.title-frame-jade {
+  color: #7ce9cb;
+  border-color: #7ce9cb;
+  background: linear-gradient(135deg, rgba(24, 88, 72, 0.4), rgba(8, 20, 18, 0.7));
+  box-shadow: 0 0 0.8em rgba(124, 233, 203, 0.28);
+}
+
+.title-frame-steel {
+  color: #cfe0f5;
+  border-color: #cfe0f5;
+  background: linear-gradient(135deg, rgba(60, 76, 98, 0.45), rgba(10, 14, 20, 0.7));
+  box-shadow: 0 0 0.8em rgba(190, 214, 245, 0.26);
+}
+
+.title-frame-royal {
+  color: #ffcf6a;
+  border-color: #e6c35a;
+  border-style: double;
+  border-width: 3px;
+  background: linear-gradient(135deg, rgba(140, 96, 20, 0.45), rgba(26, 18, 6, 0.75));
+  box-shadow: 0 0 1em rgba(255, 210, 110, 0.36);
+}
+
+.title-frame-lotus {
+  color: #ffd9f0;
+  border-color: #ffd9f0;
+  background: linear-gradient(135deg, rgba(120, 60, 100, 0.4), rgba(24, 10, 20, 0.7));
+  box-shadow: 0 0 1em rgba(255, 200, 235, 0.32);
+}
+
+.title-frame-demonic {
+  color: #ff8a6a;
+  border-color: #ff6b52;
+  background: linear-gradient(135deg, rgba(110, 26, 22, 0.5), rgba(24, 8, 8, 0.75));
+  box-shadow: 0 0 1em rgba(255, 90, 60, 0.4);
+}
+
+.title-frame-herb {
+  color: #b6f088;
+  border-color: #9be66a;
+  background: linear-gradient(135deg, rgba(52, 96, 34, 0.42), rgba(10, 20, 8, 0.7));
+  box-shadow: 0 0 0.8em rgba(155, 230, 106, 0.28);
+}
+
+.title-frame-star {
+  color: #cbb0ff;
+  border-color: #b48cff;
+  background: linear-gradient(135deg, rgba(60, 34, 110, 0.45), rgba(14, 8, 26, 0.75));
+  box-shadow: 0 0 1em rgba(180, 140, 255, 0.36);
+}
+
+.title-frame-treasure {
+  color: #ffd27a;
+  border-color: #ffc85a;
+  border-style: double;
+  border-width: 3px;
+  background: linear-gradient(135deg, rgba(126, 78, 16, 0.45), rgba(24, 16, 6, 0.75));
+  box-shadow: 0 0 1em rgba(255, 200, 90, 0.34);
+}
+
+.title-frame-void {
+  color: #d79bff;
+  border-color: #c07aff;
+  background: linear-gradient(135deg, rgba(46, 18, 70, 0.5), rgba(12, 6, 20, 0.78));
+  box-shadow: 0 0 1.1em rgba(192, 122, 255, 0.42);
+}
+
+.title-card.claimable {
+  border-color: #7ce9cb;
+  box-shadow: 0 0 0.7em rgba(124, 233, 203, 0.28);
+}
+
+.title-card .title-cond {
+  display: block;
+  margin-top: 0.3em;
+  color: #b9a97c;
+  font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
+  font-size: 0.82em;
+  letter-spacing: 0;
+}
+
+.title-card .title-cond.done {
+  color: #7ce9cb;
+}
+
+.title-card .title-stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28em;
+  margin-top: 0.35em;
+}
+
+.title-stat-chip {
+  padding: 0.1em 0.42em;
+  border: 1px solid #6f5a2a;
+  border-radius: 0.3em;
+  background: rgba(60, 46, 14, 0.5);
+  color: #ffe3a0;
+  font-size: 0.78em;
+  font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
+  letter-spacing: 0;
+}
+
+.title-card .title-desc {
+  display: block;
+  margin-top: 0.34em;
+  color: #8b93a8;
+  font-size: 0.78em;
+}
+
+.title-on {
+  margin-left: 0.35em;
+  padding: 0.05em 0.35em;
+  border-radius: 0.3em;
+  background: rgba(124, 233, 203, 0.2);
+  color: #9df3da;
+  font-size: 0.72em;
+  font-style: normal;
+}
+
 .artifact-upgrade {
   display: flex;
   align-items: center;
@@ -1763,6 +1978,23 @@ kbd {
   flex-wrap: wrap;
   gap: 0.3em;
   min-height: 1.4em;
+}
+
+.set-bonus {
+  margin-top: 0.4em;
+  padding: 0.4em 0.5em;
+  border: 1px solid #4a4227;
+  border-radius: 0.35em;
+  background: rgba(40, 32, 10, 0.45);
+  color: #ffd875;
+  font-size: 0.72em;
+  line-height: 1.6;
+  font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
+  letter-spacing: 0;
+}
+
+.set-bonus.empty {
+  display: none;
 }
 
 .special-title {

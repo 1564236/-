@@ -63,6 +63,9 @@
     mpFill: document.getElementById("mp-fill"),
     mpText: document.getElementById("mp-text"),
     xpFill: document.getElementById("xp-fill"),
+    rageBar: document.getElementById("rage-bar"),
+    rageFill: document.getElementById("rage-fill"),
+    rageText: document.getElementById("rage-text"),
     xpText: document.getElementById("xp-text"),
     level: document.getElementById("portrait-level"),
     realm: document.getElementById("hero-realm"),
@@ -202,6 +205,11 @@
     autoEquip: document.getElementById("auto-equip"),
     salvageLow: document.getElementById("salvage-low"),
     salvageCommon: document.getElementById("salvage-common"),
+    salvageUncommon: document.getElementById("salvage-uncommon"),
+    salvageRare: document.getElementById("salvage-rare"),
+    mergeEpic: document.getElementById("merge-epic"),
+    mergePrimordial: document.getElementById("merge-primordial"),
+    setBonus: document.getElementById("set-bonus"),
     bagGrid: document.getElementById("bag-grid"),
     bagPageLabel: document.getElementById("bag-page-label"),
     bagPrev: document.getElementById("bag-prev"),
@@ -238,6 +246,11 @@
   };
 
   const INVENTORY_CAP = 96;
+  const RAGE_MAX = 100;
+  const RAGE_DURATION = 12;
+  const RAGE_ATK_BONUS = 0.3;
+  const RAGE_CD = 18;
+  const ENDGAME_STAGE = 20; // 第 21 关及以后
   const BAG_PAGE_SIZE = 12;
   let bagPage = 0;
 
@@ -269,6 +282,14 @@
     stageBannerT: 0,
     killCount: 0,
     totalKills: 0,
+    totalReincarnationStones: 0,
+    sunSuns: 9,
+    sunBurn: 0,
+    sunDemon: false,
+    visionLimit: false,
+    houyiIntro: -1,
+    houyiBossX: 0,
+    houyiArrowShown: false,
     goldEarned: 0,
     combo: 0,
     comboTimer: 0,
@@ -279,18 +300,21 @@
     treasureJade: 1,
     enhanceStones: 2,
     reincarnationStones: 0,
-    artifactMats: { purification: 0, heavenSeal: 0, chaosBell: 0, immortalSword: 0 },
+    artifactMats: { purification: 0, heavenSeal: 0, chaosBell: 0, immortalSword: 0, demonCore: 0, dragonScale: 0, starShard: 0, chaosOrb: 0 },
     awaken: { atkPct: 0, hpPct: 0, defPct: 0, skillPct: 0 },
     spiritHerb: 0,
     wingMats: {},
     body: { hp: 0, atk: 0, def: 0 },
     maxStageUnlocked: 0,
+    runMaxStage: 0,
     shopTab: "gold",
     shopStock: [],
     shopKey: "",
     shopRefreshCost: 0,
     artifactSelected: "jadeBottle",
     clone: null,
+    minions: [],
+    spiritSwords: [],
     skillSlotSelected: 0,
     muted: false,
     saveTimer: 0,
@@ -412,6 +436,10 @@
       potionCd: 0,
       invuln: 0,
       hurtT: 0,
+      rage: 0,
+      rageActive: false,
+      rageT: 0,
+      rageCd: 0,
       flash: 0,
       attackBuffer: 0,
       rollT: 0,
@@ -521,6 +549,19 @@
         }
       }
     }
+    // 套装羁绊：同套 2/4/6 件依次生效
+    const setCounts = activeSetCounts();
+    for (const [setId, count] of Object.entries(setCounts)) {
+      const set = D.SETS[setId];
+      if (!set) continue;
+      for (const need of [2, 4, 6]) {
+        if (count < need || !set.bonus[need]) continue;
+        for (const [key, value] of Object.entries(set.bonus[need])) {
+          gear[key] = (gear[key] || 0) + value;
+        }
+      }
+    }
+
     const oldHp = p.hp === undefined ? null : p.hp;
     const oldMp = p.mp === undefined ? null : p.mp;
 
@@ -541,7 +582,7 @@
 
     p.maxHp = Math.max(1, Math.round((base.hp + gear.hp) * (1 + gear.hpPct / 100)));
     p.maxMp = Math.max(1, Math.round(base.mp + gear.mp));
-    const atk = (base.atk + gear.atk) * (1 + gear.atkPct / 100);
+    const atk = (base.atk + gear.atk) * (1 + gear.atkPct / 100) * (p.rageActive ? 1 + RAGE_ATK_BONUS : 1);
     const def = (base.def + gear.def) * (1 + gear.defPct / 100);
     const crit = clamp(0.05 + gear.crit / 100, 0, 0.75);
     const speed = 98 + gear.speed;
@@ -706,16 +747,26 @@
     const p = G.player;
     const source = opts.source || "drop";
     const luck = (p ? p.stats.luck || 0 : 0) + (source === "boss" ? 0.14 : 0) + G.stageIndex * 0.012;
-    let rarity = D.rollRarity(luck);
-    if (source === "boss" && rarity.order < 2) rarity = D.RARITIES[2];
+    // 品质按掉落来源固定：小怪凡品 / 精英灵品 / 妖王仙品（25% 神品）
+    // 第 21 关及以后的妖王：必掉神品，并有概率直接掉金色洪荒
+    // 洪荒三合 → 红色太初
+    let rarity;
+    if (source === "genesis") rarity = D.RARITIES[6];
+    else if (source === "boss") {
+      if (G.stageIndex >= ENDGAME_STAGE) rarity = chance(0.28) ? D.RARITIES[5] : D.RARITIES[3];
+      else rarity = chance(0.25) ? D.RARITIES[3] : D.RARITIES[2];
+    } else if (source === "elite") rarity = D.RARITIES[1];
+    else if (source === "primordial") rarity = D.RARITIES[5];
+    else rarity = D.RARITIES[0];
     if (opts.minRarity && rarity.order < getRarity(opts.minRarity).order) rarity = getRarity(opts.minRarity);
+    const setPool = D.SETS_BY_RARITY[rarity.key] || [];
+    const gearSet = setPool.length ? D.SETS[choice(setPool)] : null;
 
     const slot = opts.slot || choice(SLOT_ORDER);
+    // 装备等级只由当前关卡进度决定：每关 +5 级
     const ilvl = Math.max(
       1,
-      Math.round(
-        (p ? p.level : 1) + randInt(-1, 2) + G.stageIndex * 1.4 + G.loop * 1.5 + (source === "boss" ? 2 : 0)
-      )
+      (G.stageIndex + 1) * 5 + randInt(-1, 1) + (source === "boss" ? 1 : 0)
     );
     const mult = rarity.mult * (1 + G.loop * 0.08);
     const baseStats = {};
@@ -742,22 +793,27 @@
       baseStats.atk = (0.8 + ilvl * 0.1) * mult;
     }
 
+    const fallbackNames = (D.GEAR_NAMES[slot] && D.GEAR_NAMES[slot][rarity.key]) || ["无名装备"];
     const item = {
       id: `item_${++itemSeq}_${Date.now().toString(36)}`,
       slot,
       rarity: rarity.key,
       ilvl,
-      name: choice(D.GEAR_NAMES[slot][rarity.key]),
+      name: gearSet ? (gearSet.items[slot] || choice(fallbackNames)) : choice(fallbackNames),
+      setId: gearSet ? gearSet.id : null,
+      setName: gearSet ? gearSet.name : null,
       baseStats,
       affixes: [],
       upgrade: 0,
       balanceVersion: 2,
       lifestealNerf: true,
-      flavor: D.GEAR_FLAVOR[rarity.key]
+      lifestealNerf2: true,
+      pctNerf: true,
+      flavor: D.GEAR_FLAVOR[rarity.key] || "洪荒至宝，来历不明。"
     };
 
     const count = rarity.affixes + (source === "boss" ? 1 : 0);
-    const specialChance = [0, 0.22, 0.38, 0.55, 0.72][rarity.order] || 0;
+    const specialChance = [0, 0.22, 0.38, 0.55, 0.72, 0.85, 0.92][rarity.order] || 0;
     const used = new Set();
     let needsSpecial = source === "boss" && rarity.order >= 2;
     let guard = 0;
@@ -816,12 +872,23 @@
       }
       item.balanceVersion = 2;
     }
-    // v2.9：吸血词条全局减半（旧存档一次性迁移）
-    if (!item.lifestealNerf) {
+    // v3.1：吸血词条再砍半（相对最初共 1/4），旧存档二次迁移
+    if (!item.lifestealNerf2) {
       for (const affix of item.affixes) {
-        if (affix.key === "lifesteal") affix.value = Number((affix.value * 0.5).toFixed(2));
+        if (affix.key === "lifesteal") affix.value = Number((affix.value * 0.5).toFixed(3));
       }
-      item.lifestealNerf = true;
+      item.lifestealNerf2 = true;
+    }
+    // v3.8：战斗类百分比词条整体减半（旧存档一次性迁移；金币/掉落品质不在此列）
+    if (!item.pctNerf) {
+      const combatPct = ["crit", "atkPct", "hpPct", "defPct", "skillPct", "bossPct", "cdr", "dr", "atkSpeedPct"];
+      for (const affix of item.affixes) {
+        if (!combatPct.includes(affix.key)) continue;
+        const def = D.AFFIXES.find((a) => a.key === affix.key);
+        const decimals = def ? def.decimals : 1;
+        affix.value = Number((affix.value * 0.5).toFixed(decimals + 1));
+      }
+      item.pctNerf = true;
     }
     for (const affix of item.affixes) {
       if (affix.special === undefined) {
@@ -853,22 +920,10 @@
 
   function acquireItem(item, opts = {}) {
     const p = G.player;
-    const current = p.equip[item.slot];
-    const currentScore = scoreItem(current);
-    const newScore = scoreItem(item);
-    const autoEquip = !current || newScore > currentScore * 1.02;
-    let tag = "已入背包";
-
-    if (autoEquip) {
-      ensureBagSpace();
-      if (current) p.inventory.push(current);
-      p.equip[item.slot] = item;
-      tag = current ? "已自动装备" : "已装备";
-      recalcStats();
-    } else {
-      ensureBagSpace();
-      p.inventory.push(item);
-    }
+    // 不再自动穿戴：所有掉落一律进背包，由玩家手动装备
+    const tag = canEquipItem(item) ? "已入背包" : `需等级 ${item.ilvl}`;
+    ensureBagSpace();
+    p.inventory.push(item);
     if (p.inventory.length) bagPage = Math.floor((p.inventory.length - 1) / BAG_PAGE_SIZE);
 
     Audio.sfx("loot", item.rarity);
@@ -878,13 +933,118 @@
       addText(itemName(item), item.x || p.x, (item.y || p.y - 20) - 10, color, 7, { life: 1.1, vy: -14 });
     }
     markSave();
-    return autoEquip;
+    return false;
+  }
+
+  function canEquipItem(item) {
+    if (!item) return false;
+    const p = G.player;
+    if (!p) return false;
+    return item.ilvl <= p.level;
+  }
+
+  function itemSetOf(item) {
+    return item && item.setId ? D.SETS[item.setId] : null;
+  }
+
+  function activeSetCounts() {
+    const p = G.player;
+    const counts = {};
+    if (!p) return counts;
+    for (const slot of SLOT_ORDER) {
+      const item = p.equip[slot];
+      if (item && item.setId) counts[item.setId] = (counts[item.setId] || 0) + 1;
+    }
+    return counts;
+  }
+
+  function setBonusSummary() {
+    const counts = activeSetCounts();
+    const lines = [];
+    for (const [id, count] of Object.entries(counts)) {
+      const set = D.SETS[id];
+      if (!set) continue;
+      const active = [6, 4, 2].filter((n) => count >= n && set.bonus[n]);
+      if (!active.length) continue;
+      const parts = active.map((n) => {
+        const stats = Object.entries(set.bonus[n]).map(([k, v]) => {
+          if (k === "speed") return `移速 +${v}`;
+          return `${(D.STAT_PREFIX[k] || k)} +${Number(v).toFixed(1)}%`;
+        }).join("、");
+        return `${n}件：${stats}`;
+      });
+      lines.push(`${set.name}（${count}/6） ${parts.join("；")}`);
+    }
+    return lines;
+  }
+
+  function mergeEpicItems() {
+    const p = G.player;
+    if (!p) return;
+    const picked = [];
+    for (let i = 0; i < p.inventory.length && picked.length < 3; i++) {
+      const it = p.inventory[i];
+      if (it && it.rarity === "epic") picked.push(i);
+    }
+    if (picked.length < 3) {
+      showToast("神品不足", "需要背包中有 3 件神品装备");
+      Audio.sfx("error");
+      return;
+    }
+    for (const idx of picked.sort((a, b) => b - a)) p.inventory.splice(idx, 1);
+    const item = generateItem({ source: "primordial" });
+    ensureBagSpace();
+    p.inventory.push(item);
+    bagPage = Math.floor((p.inventory.length - 1) / BAG_PAGE_SIZE);
+    G.selection = { type: "bag", id: item.id };
+    recalcStats();
+    const setName = item.setId && D.SETS[item.setId] ? D.SETS[item.setId].name : "";
+    showToast(`洪荒至宝 · ${item.name}`, `${setName} · 金色洪荒品质`);
+    Audio.sfx("levelup");
+    G.screenFlash = { color: "#ff4a4a", alpha: 0.2, t: 0.5, duration: 0.5 };
+    renderInventory();
+    updateHUD();
+    markSave();
+  }
+
+  function mergePrimordialItems() {
+    const p = G.player;
+    if (!p) return;
+    const picked = [];
+    for (let i = 0; i < p.inventory.length && picked.length < 3; i++) {
+      const it = p.inventory[i];
+      if (it && it.rarity === "primordial") picked.push(i);
+    }
+    if (picked.length < 3) {
+      showToast("洪荒装备不足", "需要背包中有 3 件金色洪荒装备");
+      Audio.sfx("error");
+      return;
+    }
+    for (const idx of picked.sort((a, b) => b - a)) p.inventory.splice(idx, 1);
+    const item = generateItem({ source: "genesis" });
+    ensureBagSpace();
+    p.inventory.push(item);
+    bagPage = Math.floor((p.inventory.length - 1) / BAG_PAGE_SIZE);
+    G.selection = { type: "bag", id: item.id };
+    recalcStats();
+    showToast(`太初至宝 · ${item.name}`, "万始之源 · 红色太初品质");
+    Audio.sfx("levelup");
+    G.screenFlash = { color: "#ff3b3b", alpha: 0.28, t: 0.6, duration: 0.6 };
+    shakeScreen(1.2, 0.5);
+    renderInventory();
+    updateHUD();
+    markSave();
   }
 
   function equipFromBag(index) {
     const p = G.player;
     const item = p.inventory[index];
     if (!item) return;
+    if (!canEquipItem(item)) {
+      showToast("等级不足", `需要等级 ${item.ilvl} 才能装备 ${itemName(item)}`);
+      Audio.sfx("error");
+      return;
+    }
     p.inventory.splice(index, 1);
     const old = p.equip[item.slot];
     if (old) p.inventory.push(old);
@@ -924,6 +1084,7 @@
       for (let i = 0; i < p.inventory.length; i++) {
         const item = p.inventory[i];
         if (item.slot !== slot) continue;
+        if (!canEquipItem(item)) continue;
         if (!best || scoreItem(item) > scoreItem(best)) {
           best = item;
           bestIndex = i;
@@ -978,29 +1139,41 @@
     markSave();
   }
 
-  function salvageCommon() {
+  function salvageByRarity(rarityKey, label, keepHint) {
     const p = G.player;
     const keep = [];
     let gold = 0;
     let count = 0;
     for (const item of p.inventory) {
-      if (item.rarity === "common") {
+      if (item.rarity === rarityKey) {
         gold += itemSellValue(item);
         count++;
       } else keep.push(item);
     }
     if (!count) {
-      showToast("没有可分解的凡品", "灵品及以上装备会被保留");
+      showToast(`没有可分解的${label}`, keepHint);
       Audio.sfx("ui");
       return;
     }
     p.inventory = keep;
     G.gold += gold;
     Audio.sfx("gold");
-    showToast(`分解 ${count} 件凡品`, `获得 ${gold} 金币`);
+    showToast(`分解 ${count} 件${label}`, `获得 ${gold} 金币`);
     G.selection = null;
     renderInventory();
     markSave();
+  }
+
+  function salvageCommon() {
+    salvageByRarity("common", "凡品", "灵品及以上装备会被保留");
+  }
+
+  function salvageUncommon() {
+    salvageByRarity("uncommon", "灵品", "仙品及以上装备会被保留");
+  }
+
+  function salvageRare() {
+    salvageByRarity("rare", "仙品", "神品及以上装备会被保留");
   }
 
   function salvageSelected() {
@@ -1078,6 +1251,7 @@
       wingMats: G.wingMats,
       body: G.body,
       maxStageUnlocked: G.maxStageUnlocked,
+      runMaxStage: G.runMaxStage,
       artifacts: p.artifacts,
       activeArtifact: p.activeArtifact,
       artifactLevels: p.artifactLevels,
@@ -1097,6 +1271,9 @@
       totalKills: G.totalKills,
       killCount: G.killCount,
       maxCombo: G.maxCombo,
+      rage: p.rage,
+      rageCd: p.rageCd,
+      totalReincarnationStones: G.totalReincarnationStones,
       playTime: G.time - G.runStartedAt,
       muted: G.muted
     };
@@ -1160,12 +1337,21 @@
       purification: Math.max(0, Number(data.artifactMats && data.artifactMats.purification) || 0),
       heavenSeal: Math.max(0, Number(data.artifactMats && data.artifactMats.heavenSeal) || 0),
       chaosBell: Math.max(0, Number(data.artifactMats && data.artifactMats.chaosBell) || 0),
-      immortalSword: Math.max(0, Number(data.artifactMats && data.artifactMats.immortalSword) || 0)
+      immortalSword: Math.max(0, Number(data.artifactMats && data.artifactMats.immortalSword) || 0),
+      demonCore: Math.max(0, Number(data.artifactMats && data.artifactMats.demonCore) || 0),
+      dragonScale: Math.max(0, Number(data.artifactMats && data.artifactMats.dragonScale) || 0),
+      starShard: Math.max(0, Number(data.artifactMats && data.artifactMats.starShard) || 0),
+      chaosOrb: Math.max(0, Number(data.artifactMats && data.artifactMats.chaosOrb) || 0)
     };
     G.maxStageUnlocked = clamp(
       Number.isFinite(Number(data.maxStageUnlocked)) ? Number(data.maxStageUnlocked) : G.stageIndex,
       0,
       D.STAGES.length - 1
+    );
+    G.runMaxStage = clamp(
+      Number.isFinite(Number(data.runMaxStage)) ? Number(data.runMaxStage) : G.maxStageUnlocked,
+      0,
+      G.maxStageUnlocked
     );
     const aw = data.awaken && typeof data.awaken === "object" ? data.awaken : {};
     G.awaken = {
@@ -1188,13 +1374,18 @@
       def: Math.max(0, Number(bd.def) || 0)
     };
     G.clone = null;
+    G.minions = [];
+    G.spiritSwords = [];
     G.totalKills = Math.max(0, Number(data.totalKills) || 0);
     G.killCount = Math.max(0, Number(data.killCount) || 0);
     G.maxCombo = Math.max(0, Number(data.maxCombo) || 0);
+    G.totalReincarnationStones = Math.max(0, Number(data.totalReincarnationStones) || 0);
     G.muted = !!data.muted;
 
     const p = makePlayer();
     p.level = Math.max(1, Math.floor(Number(data.level) || 1));
+    p.rage = clamp(Number(data.rage) || 0, 0, RAGE_MAX);
+    p.rageCd = Math.max(0, Number(data.rageCd) || 0);
     p.xp = Math.max(0, Number(data.xp) || 0);
     p.skillSlots = normalizeSkillSlots(data.skillSlots);
     p.skillLevels = normalizeSkillLevels(data.skillLevels);
@@ -1328,6 +1519,14 @@
     accessory: ["gearAccessory", "gearAccessoryStat"]
   };
 
+  function skillManaCost(id) {
+    const def = D.SKILLS[id];
+    if (!def) return 0;
+    const level = skillLevel(id);
+    // 每强化一级，法力消耗递增 15%（10 级约为 1 级的 2.35 倍）
+    return Math.round(def.mana * (1 + (level - 1) * 0.15));
+  }
+
   function updateHUD() {
     const p = G.player;
     if (!p) return;
@@ -1341,6 +1540,19 @@
     setText(dom.hpText, `${Math.ceil(p.hp)} / ${Math.ceil(p.maxHp)}`);
     setText(dom.mpText, `${Math.ceil(p.mp)} / ${Math.ceil(p.maxMp)}`);
     setText(dom.xpText, `${Math.floor(p.xp)} / ${need}`);
+    const ragePct = clamp(((p.rage || 0) / RAGE_MAX) * 100, 0, 100);
+    setStyle(dom.rageFill, "width", `${ragePct}%`);
+    if (p.rageActive) {
+      setText(dom.rageText, `怒气爆发 ${p.rageT.toFixed(1)}s`);
+    } else if ((p.rageCd || 0) > 0) {
+      setText(dom.rageText, `怒气冷却 ${Math.ceil(p.rageCd)}s`);
+    } else {
+      setText(dom.rageText, `怒气 ${Math.floor(p.rage || 0)} / ${RAGE_MAX} · Q`);
+    }
+    if (dom.rageBar) {
+      dom.rageBar.classList.toggle("ready", !p.rageActive && (p.rageCd || 0) <= 0 && (p.rage || 0) >= RAGE_MAX);
+      dom.rageBar.classList.toggle("active", !!p.rageActive);
+    }
     setText(dom.level, p.level);
     setText(dom.gold, G.gold);
     setText(dom.invGold, G.gold);
@@ -1365,12 +1577,12 @@
       const touchEl = dom[`touchSkill${i}`];
       setText(iconEl, def ? def.icon : "—");
       setText(nameEl, def ? def.name : "未研习");
-      setText(costEl, def ? def.mana : "");
+      setText(costEl, def ? skillManaCost(id) : "");
       if (touchEl) setText(touchEl, def ? def.icon : "—");
       const card = dom.shell.querySelector(`[data-skill-slot="${i}"]`);
       if (card) {
         card.classList.toggle("active", !!def && p.skill.active && p.skill.id === id);
-        card.title = def ? `${["K", "L", "O"][i]} · ${def.name} Lv.${p.skillLevels[id] || 1} · ${def.mana} 法力` : "未研习";
+        card.title = def ? `${["K", "L", "O"][i]} · ${def.name} Lv.${p.skillLevels[id] || 1} · ${skillManaCost(id)} 法力` : "未研习";
       }
     }
     setStyle(dom.dashCd, "height", `${clamp((p.dashCd / Math.max(0.2, 1.2 - p.stats.cdr * 0.2)) * 100, 0, 100)}%`);
@@ -1501,6 +1713,9 @@
       ? `<span>战力 <b>${scoreItem(item)}</b></span>`
       : `<span>对比当前 <b class="${diff >= 0 ? "good" : ""}" style="${diff < 0 ? "color:#e2857d" : ""}">${diff >= 0 ? "+" : ""}${diff} 战力</b></span>`;
 
+    const gearSet = itemSetOf(item);
+    const levelOk = canEquipItem(item);
+    const nameOk = equipped || levelOk;
     let actions = "";
     if (equipped) {
       const cost = upgradeCost(item);
@@ -1511,7 +1726,7 @@
       `;
     } else {
       actions = `
-        <button class="tiny-button gold" data-action="equip">穿戴</button>
+        <button class="tiny-button gold" data-action="equip" ${levelOk ? "" : "disabled"}>${levelOk ? "穿戴" : `需等级 ${item.ilvl}`}</button>
         <button class="tiny-button danger" data-action="salvage">分解 · ${itemSellValue(item)} 金</button>
       `;
     }
@@ -1520,7 +1735,9 @@
       <div class="detail-top">
         <div>
           <h4 class="detail-name" style="--rarity:${rarity.color}">${itemName(item)}</h4>
-          <p class="detail-meta">${rarity.name} · ${itemSlotLabel(item.slot)} · 装备等级 ${item.ilvl} · 战力 ${scoreItem(item)}</p>
+          <p class="detail-meta">${rarity.name}${gearSet ? ` · ${gearSet.name}` : ""} · ${itemSlotLabel(item.slot)} · 装备等级 ${item.ilvl} · 战力 ${scoreItem(item)}</p>
+          ${nameOk ? "" : `<p class="detail-meta" style="color:#e2857d">等级不足：需要等级 ${item.ilvl}（当前 ${p.level}）</p>`}
+          ${gearSet ? `<p class="detail-meta">套装羁绊：${gearSet.theme}</p>` : ""}
         </div>
         <div class="detail-actions">${actions}</div>
       </div>
@@ -1593,6 +1810,11 @@
       (specials.length
         ? specials.map(([label, value]) => `<span class="special-chip">${label} +${value.toFixed(1)}%</span>`).join("")
         : '<span class="special-chip" style="opacity:.45">暂无</span>');
+    const setLines = setBonusSummary();
+    if (dom.setBonus) {
+      dom.setBonus.classList.toggle("empty", !setLines.length);
+      dom.setBonus.innerHTML = setLines.length ? `<b>套装羁绊</b><br />${setLines.join("<br />")}` : "";
+    }
 
     setText(dom.bagCapacity, `${p.inventory.length} / ${INVENTORY_CAP}`);
     const totalPages = Math.max(1, Math.ceil(p.inventory.length / BAG_PAGE_SIZE));
@@ -1690,7 +1912,7 @@
               <span class="skill-slot-name">${def.name}</span>
               <span class="skill-slot-meta">Lv.${level} · ${def.tag} · 无冷却</span>
             </span>
-            <span class="skill-slot-cost">${def.mana} 法力</span>
+            <span class="skill-slot-cost">${skillManaCost(id)} 法力</span>
           </button>
         `;
       })
@@ -1721,13 +1943,13 @@
           </div>
           <p class="skill-card-desc">${def.desc}</p>
           <div class="skill-card-meta">
-            <span class="skill-card-mana">${def.mana} 法力 · 无冷却</span>
+            <span class="skill-card-mana">${skillManaCost(id)} 法力 · 无冷却</span>
             <span class="skill-level-dots">${Array.from({ length: D.MAX_SKILL_LEVEL }, (_, i) => `<i class="${i < level ? "on" : ""}"></i>`).join("")}</span>
           </div>
           <div class="skill-card-actions">
             <button class="skill-mini-button ${assignedIndex === G.skillSlotSelected ? "" : "primary"}" data-assign-skill="${id}" ${assignedIndex === G.skillSlotSelected ? "disabled" : ""}>${assignLabel}</button>
             ${assigned
-              ? `<button class="skill-mini-button breakthrough" data-breakthrough-skill="${id}" ${(!canBreak || maxed) ? "disabled" : ""}>${maxed ? "已突破至五重" : `突破 ${breakCost} 魄`}</button>`
+              ? `<button class="skill-mini-button breakthrough" data-breakthrough-skill="${id}" ${(!canBreak || maxed) ? "disabled" : ""}>${maxed ? "已突破至十重" : `突破 ${breakCost} 魄`}</button>`
               : ""}
           </div>
         </article>
@@ -1768,7 +1990,7 @@
     }
     const level = p.skillLevels[id] || 1;
     if (level >= D.MAX_SKILL_LEVEL) {
-      showToast("已突破至五重", "该技能已达到上限");
+      showToast("已突破至十重", "该技能已达到上限");
       Audio.sfx("error");
       return;
     }
@@ -2100,6 +2322,11 @@
       G.screenFlash = { color: def.color, alpha: 0.12, t: 0.3, duration: 0.3 };
       Audio.sfx("boss");
       showToast(`${def.name} · 镇压`, def.effect === "freeze" ? "周围敌人被冻结" : "周围敌人被镇压");
+    } else if (def.effect === "swords") {
+      activateSpiritSwords(artifactLevel(id));
+      G.screenFlash = { color: def.color, alpha: 0.14, t: 0.35, duration: 0.35 };
+      Audio.sfx("skill");
+      showToast("剑魂 · 御剑", "五把灵剑自动攻击敌人，伤害为普通攻击的 30%");
     } else if (def.effect === "swordstorm") {
       const radius = 210 + (scale - 1) * 90;
       addEffect({ kind: "ring", x: p.x, y: FLOOR, radius: 8, grow: radius, duration: 0.65, color: def.color });
@@ -2172,6 +2399,10 @@
     if (stage >= 2) addMaterial("purification", 1, 360 + stage * 36);
     if (stage >= 5) addMaterial("heavenSeal", 1, 520 + stage * 44);
     if (stage >= 8) addMaterial("chaosBell", 1, 720 + stage * 52);
+    if (stage >= 9) addMaterial("demonCore", 1, 820 + stage * 56);
+    if (stage >= 12) addMaterial("dragonScale", 1, 950 + stage * 60);
+    if (stage >= 15) addMaterial("starShard", 1, 1100 + stage * 66);
+    if (stage >= 18) addMaterial("chaosOrb", 1, 1300 + stage * 72);
     for (let i = 0; i < 2; i++) {
       const item = generateItem({ source: stage >= 5 ? "boss" : "elite" });
       const price = Math.max(120, Math.round(scoreItem(item) * 1.5 + 60));
@@ -2220,7 +2451,8 @@
         { key: "treasureJade", name: "法宝灵玉 ×5", desc: "法宝合成的通用灵材", price: 1 },
         { key: "gold", name: "金币 ×1000", desc: "1 轮回石兑换 1000 金币", price: 1 },
         { key: "mecha", name: "机甲·齐天", desc: "异界机甲时装", price: 8 },
-        { key: "kunlunMirror", name: "昆仑镜", desc: "异界法宝：冻结敌人，攻击/生命百分比 +3%", price: 15 }
+        { key: "kunlunMirror", name: "昆仑镜", desc: "异界法宝：冻结敌人，攻击/生命百分比 +9%", price: 15 },
+        { key: "swordSoul", name: "剑魂", desc: "轮回法宝：召唤五把自动攻击的灵剑，伤害为普攻 30%", price: 20 }
       ];
       dom.shopGrid.innerHTML = offers.map((offer) => `
         <div class="shop-card">
@@ -2265,25 +2497,56 @@
         </div>`;
       }).join("");
     } else {
-      dom.shopGrid.innerHTML = D.TITLE_ORDER.map((id) => {
+      // 称号页：按状态分组，显示加成标签与达成进度
+      const rows = D.TITLE_ORDER.filter((id) => id !== "none").map((id) => {
         const title = D.TITLES[id];
         const owned = p.titles.includes(id);
         const active = p.title === id;
         const condMet = checkTitleCond(title.cond);
-        let titleActions;
-        if (owned) {
-          titleActions = `<button class="tiny-button gold" data-title-equip="${id}" ${active ? "disabled" : ""}>${active ? "已佩戴" : "佩戴"}</button>`;
-        } else if (title.cond) {
-          titleActions = `<em>条件：${title.cond.desc}</em><button class="tiny-button gold" data-title-claim="${id}" ${condMet ? "" : "disabled"}>${condMet ? "领取" : "未达成"}</button>`;
-        } else {
-          titleActions = `<em>${title.costStones} 轮回石</em><button class="tiny-button gold" data-title-buy="${id}" ${G.reincarnationStones < title.costStones ? "disabled" : ""}>购买</button>`;
+        const progress = title.cond ? titleCondProgress(title.cond) : "";
+        return { id, title, owned, active, condMet, progress, group: active ? 0 : condMet && !owned ? 1 : owned ? 2 : 3 };
+      });
+      rows.sort((a, b) => a.group - b.group || D.TITLE_ORDER.indexOf(a.id) - D.TITLE_ORDER.indexOf(b.id));
+      const groupLabel = { 0: "当前佩戴", 1: "可领取（条件已达成）", 2: "已获得", 3: "未达成" };
+      let lastGroup = -1;
+      const html = [];
+      for (const row of rows) {
+        if (row.group !== lastGroup) {
+          lastGroup = row.group;
+          const count = rows.filter((r) => r.group === row.group).length;
+          html.push(`<div class="title-group-heading">${groupLabel[row.group]} · ${count}</div>`);
         }
-        return `<div class="shop-card title-card ${active ? "selected" : ""}">
-          <div class="shop-card-icon title" style="--card-color:#e6c35a">${title.icon}</div>
-          <div class="shop-card-main"><b>${title.name}</b><span>${title.desc}</span></div>
+        const statChips = D.STAT_PREFIX
+          ? Object.entries(row.title.stats || {}).map(([key, value]) => {
+            const mark = Number(value) > 0 ? "+" : "";
+            const suffix = key === "speed" ? "" : "%";
+            return `<span class="title-stat-chip">${(D.STAT_PREFIX[key] || key)} ${mark}${Number(value).toFixed(1)}${suffix}</span>`;
+          }).join("")
+          : "";
+        let titleActions;
+        if (row.owned) {
+          titleActions = `<button class="tiny-button gold" data-title-equip="${row.id}" ${row.active ? "disabled" : ""}>${row.active ? "已佩戴" : "佩戴"}</button>`;
+        } else if (row.title.cond) {
+          titleActions = `<button class="tiny-button gold" data-title-claim="${row.id}" ${row.condMet ? "" : "disabled"}>${row.condMet ? "领取" : "未达成"}</button>`;
+        } else {
+          titleActions = `<button class="tiny-button gold" data-title-buy="${row.id}" ${G.reincarnationStones < row.title.costStones ? "disabled" : ""}>购买 · ${row.title.costStones} 石</button>`;
+        }
+        const condLine = row.title.cond
+          ? `<span class="title-cond ${row.condMet ? "done" : ""}">${row.condMet ? "✔ " : "○ "}获取条件：${row.title.cond.desc}${row.progress ? `（${row.progress}）` : ""}</span>`
+          : `<span class="title-cond">获取方式：轮回商店 ${row.title.costStones} 轮回石</span>`;
+        html.push(`<div class="shop-card title-card title-frame-${row.title.frame || "gold"} ${row.active ? "selected" : ""} ${row.condMet && !row.owned ? "claimable" : ""}">
+          <div class="shop-card-icon title" style="--card-color:#e6c35a">${row.title.icon}</div>
+          <div class="shop-card-main">
+            <b>${row.title.name}${row.active ? ' <em class="title-on">佩戴中</em>' : ""}</b>
+            <span class="title-frame-tag">${TITLE_FRAME_LABEL[row.title.frame] || "鎏金边框"}</span>
+            ${condLine}
+            <span class="title-stat-row">${statChips}</span>
+            <span class="title-desc">${row.title.desc}</span>
+          </div>
           <div class="shop-card-buy">${titleActions}</div>
-        </div>`;
-      }).join("");
+        </div>`);
+      }
+      dom.shopGrid.innerHTML = html.join("");
     }
   }
 
@@ -2351,6 +2614,18 @@
       G.artifactSelected = "kunlunMirror";
       recalcStats();
       showToast("获得异界法宝 · 昆仑镜", "攻击与生命 +3%（百分比）");
+    } else if (key === "swordSoul") {
+      if (G.player.artifacts.includes("swordSoul")) {
+        showToast("已经拥有", "剑魂已在法宝栏中");
+        return;
+      }
+      if (G.reincarnationStones < 20) return;
+      G.reincarnationStones -= 20;
+      G.player.artifacts.push("swordSoul");
+      G.player.activeArtifact = "swordSoul";
+      G.artifactSelected = "swordSoul";
+      recalcStats();
+      showToast("获得轮回法宝 · 剑魂", "按 F 召唤五把自动攻击的灵剑");
     }
     Audio.sfx("loot", "epic");
     renderShop();
@@ -2452,7 +2727,28 @@
       }
       case "wing": return !!(p && p.wings.includes(cond.value));
       case "artifacts": return !!(p && p.artifacts.length >= cond.value);
+      case "loopStones":
+        return G.loop >= (cond.loops || 10) && (G.totalReincarnationStones || 0) > cond.value;
       default: return false;
+    }
+  }
+
+  function titleCondProgress(cond) {
+    if (!cond) return "";
+    const p = G.player;
+    switch (cond.type) {
+      case "stage": return `已解锁第 ${G.maxStageUnlocked + 1} 关 / 需通关第 ${cond.value + 1} 关`;
+      case "loop": return `${G.loop} / ${cond.value} 次轮回`;
+      case "kills": return `${G.totalKills || 0} / ${cond.value} 累计击杀`;
+      case "body": {
+        const b = G.body || {};
+        return `${(b.hp || 0) + (b.atk || 0) + (b.def || 0)} / ${cond.value} 淬体等级`;
+      }
+      case "wing": return p && p.wings.includes(cond.value) ? "已拥有无极之翼" : "尚无无极之翼";
+      case "artifacts": return `${p ? p.artifacts.length : 0} / ${cond.value} 件法宝`;
+      case "loopStones":
+        return `${G.loop} / ${cond.loops || 10} 次轮回 · 累计轮回石 ${Math.round(G.totalReincarnationStones || 0)} / ${cond.value}`;
+      default: return "";
     }
   }
 
@@ -2697,7 +2993,22 @@
   function reincarnationReward() {
     const p = G.player;
     if (!p) return 1;
-    return Math.max(1, Math.floor(p.stats.power / 600) + G.loop * 2 + Math.floor(G.maxStageUnlocked / 2));
+    // 只按“本轮回实际推进的进度”结算，避免靠永久成长反复刷第一关
+    const progress = Math.max(0, Math.min(G.runMaxStage || 0, G.maxStageUnlocked || 0));
+    const progressReward = progress > 0 ? Math.floor(progress / 2) + 1 : 0;
+    const loopBonus = G.loop * 2;
+    const killBonus = Math.floor((G.totalKills || 0) / 800);
+    return Math.max(1, progressReward + loopBonus + killBonus);
+  }
+
+  function reincarnationBreakdown() {
+    const progress = Math.max(0, Math.min(G.runMaxStage || 0, G.maxStageUnlocked || 0));
+    return {
+      progress,
+      progressReward: progress > 0 ? Math.floor(progress / 2) + 1 : 0,
+      loopBonus: G.loop * 2,
+      killBonus: Math.floor((G.totalKills || 0) / 800)
+    };
   }
 
   function goldConversionStones() {
@@ -2714,10 +3025,12 @@
     const reward = reincarnationReward();
     const goldReward = goldConversionStones();
     const essenceReward = essenceConversionStones();
+    const bd = reincarnationBreakdown();
     dom.reincarnationStats.innerHTML = `
-      <div><span>当前战力</span><b>${p.stats.power}</b></div>
-      <div><span>当前轮回</span><b>${G.loop + 1}</b></div>
-      <div><span>战力结算</span><b>+${reward} 轮回石</b></div>
+      <div><span>本轮推进</span><b>第 ${bd.progress + 1} 关</b></div>
+      <div><span>进度结算</span><b>+${bd.progressReward} 轮回石</b></div>
+      <div><span>轮回加成</span><b>+${bd.loopBonus} 轮回石</b></div>
+      <div><span>击杀加成</span><b>+${bd.killBonus} 轮回石</b></div>
       <div><span>金币结算</span><b>${G.gold} → +${goldReward} 轮回石</b></div>
       <div><span>精魄结算</span><b>${G.essence} → +${essenceReward} 轮回石</b></div>
       <div><span>合计获得</span><b>+${reward + goldReward + essenceReward} 轮回石</b></div>
@@ -2773,8 +3086,10 @@
     const essenceReward = essenceConversionStones();
     const reward = powerReward + goldReward + essenceReward;
     G.reincarnationStones += reward;
+    G.totalReincarnationStones = (G.totalReincarnationStones || 0) + reward;
     G.gold = 0;
     G.essence = 0;
+    G.runMaxStage = 0;
     // 轮回重置技能：等级归 1，技能栏回到默认
     for (const id of Object.keys(p.skillLevels)) p.skillLevels[id] = 1;
     p.skillSlots = D.DEFAULT_SKILL_SLOTS.slice();
@@ -3172,15 +3487,18 @@
     G.treasureJade = 1;
     G.enhanceStones = 2;
     G.reincarnationStones = 0;
-    G.artifactMats = { purification: 0, heavenSeal: 0, chaosBell: 0, immortalSword: 0 };
+    G.artifactMats = { purification: 0, heavenSeal: 0, chaosBell: 0, immortalSword: 0, demonCore: 0, dragonScale: 0, starShard: 0, chaosOrb: 0 };
     G.awaken = { atkPct: 0, hpPct: 0, defPct: 0, skillPct: 0 };
     G.spiritHerb = 0;
     G.wingMats = {};
     G.body = { hp: 0, atk: 0, def: 0 };
     G.maxStageUnlocked = 0;
+    G.runMaxStage = 0;
     G.shopStock = [];
     G.shopKey = "";
     G.clone = null;
+    G.minions = [];
+    G.spiritSwords = [];
     G.killCount = 0;
     G.totalKills = 0;
     G.goldEarned = 0;
@@ -3568,6 +3886,9 @@
       case "KeyY":
         openWings(false);
         break;
+      case "KeyQ":
+        tryRage();
+        break;
       case "KeyC":
         openInventory(false);
         break;
@@ -3829,7 +4150,11 @@
     dom.salvageLow.addEventListener("click", salvageBelowEquipped);
     if (dom.bagPrev) dom.bagPrev.addEventListener("click", () => { bagPage = Math.max(0, bagPage - 1); renderInventory(); Audio.sfx("ui"); });
     if (dom.bagNext) dom.bagNext.addEventListener("click", () => { bagPage += 1; renderInventory(); Audio.sfx("ui"); });
+    if (dom.mergeEpic) dom.mergeEpic.addEventListener("click", mergeEpicItems);
+    if (dom.mergePrimordial) dom.mergePrimordial.addEventListener("click", mergePrimordialItems);
     dom.salvageCommon.addEventListener("click", salvageCommon);
+    if (dom.salvageUncommon) dom.salvageUncommon.addEventListener("click", salvageUncommon);
+    if (dom.salvageRare) dom.salvageRare.addEventListener("click", salvageRare);
     dom.revive.addEventListener("click", reviveAtStage);
     dom.deathTitle.addEventListener("click", enterTitle);
     dom.quit.addEventListener("click", enterTitle);
@@ -3920,6 +4245,7 @@
   function loadStage(index, opts = {}) {
     G.stageIndex = clamp(index, 0, D.STAGES.length - 1);
     G.maxStageUnlocked = Math.max(G.maxStageUnlocked || 0, G.stageIndex);
+    G.runMaxStage = Math.max(G.runMaxStage || 0, G.stageIndex);
     G.stage = D.STAGES[G.stageIndex];
     G.platforms = G.stage.platforms.map((p) => ({ ...p }));
     G.enemies = [];
@@ -3973,6 +4299,16 @@
     p.debuffSlowT = 0;
     p.debuffSlowMult = 1;
     G.clone = null;
+    G.minions = [];
+    G.spiritSwords = [];
+    // 第二十一关（汤谷九日）：重置九日灼烧与后羿阶段状态
+    const sunStage = !!(G.stage && G.stage.biome === "ninesun");
+    G.sunSuns = sunStage ? 9 : 0;
+    G.sunBurn = sunStage ? (G.stage.sunBurn || 0.01) : 0;
+    G.sunDemon = false;
+    G.visionLimit = false;
+    G.houyiIntro = -1;
+    G.houyiArrowShown = false;
     p.dashing = 0;
     p.rollT = 0;
     p.kbT = 0;
@@ -4186,7 +4522,12 @@
       poise: Math.round(hp * 0.28),
       poiseBroken: false,
       poiseRegenRate: Math.max(1, Math.round(hp * 0.28) / 4),
-      enraged: false
+      enraged: false,
+      transforming: 0,
+      demon: false,
+      sunShotDone: false,
+      demonPhaseTriggered: false,
+      forcePattern: null
     };
     G.enemies.push(e);
     G.boss = e;
@@ -4197,6 +4538,20 @@
     if (!G.stage || G.boss) return;
     G.waveState = "boss";
     const bx = clamp(G.player.x + 185, 355, WORLD_W - 64);
+    // 第二十一关：先播放后羿开场动画（箭落八日 → 化身后羿）
+    if (G.stageIndex === 20) {
+      G.houyiIntro = 0;
+      G.houyiBossX = bx;
+      G.sunBurn = G.stage.sunBurn || 0.01;
+      G.sunSuns = 9;
+      G.sunDemon = false;
+      G.visionLimit = false;
+      showWaveBanner("汤谷九日", "箭鸣自天外而来");
+      Audio.setScene(G.stage.biome, true);
+      Audio.sfx("boss");
+      markSave();
+      return;
+    }
     const e = spawnBossEnemy(G.stage.boss, bx);
     if (!e) return;
     G.camera.x = clamp(bx - W * 0.68, 0, WORLD_W - W);
@@ -4211,9 +4566,79 @@
     markSave();
   }
 
+  function updateHouyiIntro(dt) {
+    if (G.houyiIntro < 0) return;
+    const p = G.player;
+    G.houyiIntro += dt;
+    const t = G.houyiIntro;
+    const bossX = G.houyiBossX || clamp(p.x + 185, 355, WORLD_W - 64);
+    // 1.3s：神箭射落八日
+    if (t >= 1.25 && G.sunSuns === 9) {
+      G.sunSuns = 1;
+      G.sunBurn = 0;
+      for (let i = 0; i < 8; i++) {
+        const sx = p.x - W * 0.35 + i * 62;
+        const sy = 30 + (i % 3) * 16;
+        addEffect({ kind: "burst", x: sx, y: sy, duration: 0.7, color: i % 2 ? "#ffd76a" : "#ff8a3d", count: 12, spread: 26 });
+        addEffect({ kind: "ring", x: sx, y: sy, radius: 4, grow: 40, duration: 0.6, color: "#ffe9a8" });
+      }
+      addEffect({ kind: "eyeBeam", x: p.x - W * 0.4, y: 46, targetX: bossX, targetY: 46, facing: 1, duration: 0.6, color: "#fff2b8" });
+      G.screenFlash = { color: "#fff2b8", alpha: 0.3, t: 0.5, duration: 0.5 };
+      shakeScreen(1.5, 0.6);
+      Audio.sfx("gong");
+      showToast("神箭射日", "八日陨落，灼烧已解除");
+    }
+    // 1.3s ~ 3.1s：箭矢从天而降，化身后羿
+    if (t >= 2.2 && !G.houyiArrowShown) {
+      G.houyiArrowShown = true;
+      addEffect({ kind: "eyeBeam", x: bossX, y: -10, targetX: bossX, targetY: FLOOR - 20, facing: 1, duration: 0.7, color: "#ffe9a8" });
+      addEffect({ kind: "burst", x: bossX, y: FLOOR - 20, duration: 0.6, color: "#ffd76a", count: 20, spread: 30 });
+    }
+    if (t >= 3.1) {
+      G.houyiIntro = -1;
+      G.houyiArrowShown = false;
+      G.sunBurn = 0;
+      const e = spawnBossEnemy(G.stage.boss, bossX);
+      if (!e) return;
+      G.camera.x = clamp(bossX - W * 0.68, 0, WORLD_W - W);
+      addEffect({ kind: "ring", x: e.x, y: FLOOR, radius: 12, grow: 170, duration: 0.9, color: "#ffd76a" });
+      addEffect({ kind: "rift", x: e.x, y: FLOOR, duration: 1, color: "#e8c07a" });
+      shakeScreen(1.1, 0.5);
+      showWaveBanner("后羿", "射日者降临");
+      Audio.sfx("boss");
+    }
+  }
+
   function updateStageFlow(dt) {
     const p = G.player;
     if (!p) return;
+
+    if (G.houyiIntro >= 0) {
+      updateHouyiIntro(dt);
+      return;
+    }
+
+    // 九日灼烧：按最大生命百分比持续扣血
+    if (G.sunBurn > 0 && !p.dead && G.mode === "playing") {
+      p.hp -= p.maxHp * G.sunBurn * dt;
+      if (Math.random() < 0.35) {
+        addParticle({
+          x: p.x + rand(-8, 8),
+          y: p.y - rand(4, 30),
+          vx: rand(-16, 16),
+          vy: rand(-46, -16),
+          life: rand(0.25, 0.5),
+          size: 1,
+          color: Math.random() < 0.5 ? "#ffb03d" : "#ff6b3d",
+          gravity: -20
+        });
+      }
+      if (p.hp <= 0) {
+        p.hp = 0;
+        beginDeath();
+        return;
+      }
+    }
 
     if (G.stageBannerT > 0) {
       G.stageBannerT -= dt;
@@ -4295,13 +4720,14 @@
       Audio.sfx("error");
       return false;
     }
-    if (p.mp < def.mana) {
-      showToast("法力不足", `${def.name}需要 ${def.mana} 法力，法力上限主要来自装备`);
+    const manaCost = skillManaCost(id);
+    if (p.mp < manaCost) {
+      showToast("法力不足", `${def.name} Lv.${skillLevel(id)} 需要 ${manaCost} 法力，法力上限主要来自装备`);
       Audio.sfx("error");
       return false;
     }
     const level = skillLevel(id);
-    p.mp -= def.mana;
+    p.mp -= manaCost;
     p.attack.active = false;
     p.skill.id = id;
     p.skill.active = true;
@@ -5031,6 +5457,11 @@
         s.hit = true;
         activateGoldenBody(level);
       }
+    } else if (s.id === "reinforce") {
+      if (!s.hit && s.t >= 0.16) {
+        s.hit = true;
+        summonMinions(level);
+      }
     } else if (s.id === "staffSlam") {
       if (!s.hit && s.t >= 0.3) {
         s.hit = true;
@@ -5092,7 +5523,390 @@
     addEffect({ kind: "burst", x: G.clone.x, y: G.clone.y - 14, duration: 0.45, color: "#7ce9cb", count: 14, spread: 28 });
     addText("分身消散", G.clone.x, G.clone.y - 38, "#8ff0d4", 7, { life: 0.8, vy: -18 });
     G.clone = null;
+    G.minions = [];
+    G.spiritSwords = [];
     if (showMessage) Audio.sfx("error");
+  }
+
+  function minionKindForSkin() {
+    const skin = G.player ? G.player.skin : "default";
+    if (skin === "mecha") return "robot";
+    if (skin === "ruined") return "ruined";
+    if (skin === "specter") return "specter";
+    return "monkey";
+  }
+
+  function summonMinions(level, count = 2) {
+    const p = G.player;
+    if (!p) return;
+    const lv = Math.max(1, level || 1);
+    const kind = minionKindForSkin();
+    const total = Math.max(1, Math.round(count));
+    G.minions = [];
+    for (let i = 0; i < total; i++) {
+      G.minions.push({
+        kind,
+        level: lv,
+        x: p.x - p.facing * (24 + i * 14),
+        y: p.y - 6,
+        facing: p.facing,
+        t: 0,
+        duration: 10 + (lv - 1) * 0.8,
+        maxDuration: 10 + (lv - 1) * 0.8,
+        attackCd: 0.3 + i * 0.18,
+        lungeT: 0,
+        atk: p.stats.atk * (0.3 + (lv - 1) * 0.04),
+        maxHp: Math.round(p.maxHp * (0.3 + (lv - 1) * 0.03)),
+        swing: 0,
+        slot: i
+      });
+    }
+    const color = kind === "robot" ? "#7fe7ff" : kind === "ruined" ? "#5fe6c8" : "#9de8bf";
+    for (const mn of G.minions) {
+      addEffect({ kind: "ring", x: mn.x, y: p.y - 8, radius: 4, grow: 44, duration: 0.5, color });
+    }
+    addText("增援!", p.x, p.y - 52, color, 9, { life: 1, vy: -20 });
+    Audio.sfx("portal");
+  }
+
+  function updateMinions(dt) {
+    const p = G.player;
+    if (!p) return;
+    if (!G.minions || !G.minions.length) return;
+    for (const mn of G.minions) {
+      mn.t += dt;
+      mn.duration -= dt;
+      mn.attackCd -= dt;
+      mn.lungeT = Math.max(0, mn.lungeT - dt);
+      mn.swing = Math.max(0, mn.swing - dt);
+      if (p.dead) continue;
+      // 找最近的敌人
+      let target = null;
+      let best = 300;
+      for (const e of G.enemies) {
+        if (e.dead || e.spawnT > 0) continue;
+        const d = Math.hypot(e.x - mn.x, e.y - e.h * 0.5 - (mn.y - 8));
+        if (d < best) {
+          best = d;
+          target = e;
+        }
+      }
+      if (target) {
+        const dir = Math.sign(target.x - mn.x) || mn.facing;
+        const stop = 22 + (target.w || 20) * 0.4;
+        if (Math.abs(target.x - mn.x) > stop) {
+          mn.x += dir * 132 * dt;
+          mn.facing = dir;
+        } else if (mn.attackCd <= 0) {
+          mn.attackCd = 0.9;
+          mn.swing = 0.24;
+          mn.lungeT = 0.16;
+          const dmg = Math.max(1, mn.atk * rand(0.9, 1.1));
+          damageEnemy(target, dmg, { dir, source: "minion" });
+          addEffect({ kind: "hit", x: target.x, y: target.y - target.h * 0.55, duration: 0.18, seed: rand(0, 6) });
+        }
+      } else {
+        const followX = p.x - p.facing * (24 + mn.slot * 16);
+        const followY = p.y - 6 + Math.sin(mn.t * 4 + mn.slot) * 3;
+        if (Math.abs(followX - mn.x) > 240) {
+          mn.x = followX;
+          mn.y = followY;
+        } else {
+          mn.x = lerp(mn.x, followX, 1 - Math.exp(-5 * dt));
+          mn.y = lerp(mn.y, followY, 1 - Math.exp(-5 * dt));
+        }
+        mn.facing = p.facing;
+      }
+      if (mn.duration <= 0) {
+        addEffect({ kind: "burst", x: mn.x, y: mn.y - 10, duration: 0.4, color: "#9de8bf", count: 10, spread: 22 });
+      }
+    }
+    G.minions = G.minions.filter((mn) => mn.duration > 0);
+  }
+
+  function activateSpiritSwords(level) {
+    const p = G.player;
+    if (!p) return;
+    const lv = Math.max(1, level || 1);
+    G.spiritSwords = [];
+    for (let i = 0; i < 5; i++) {
+      G.spiritSwords.push({
+        index: i,
+        t: Math.random() * 6,
+        duration: 12 + (lv - 1) * 1.5,
+        cd: 0.35 + i * 0.16,
+        hitT: 0,
+        angle: -0.8 - i * 0.06,
+        x: p.x,
+        y: p.y - 30
+      });
+    }
+    addEffect({ kind: "ring", x: p.x, y: p.y - 24, radius: 6, grow: 90, duration: 0.6, color: "#8fe8ff" });
+    addText("剑魂 · 御剑", p.x, p.y - 56, "#8fe8ff", 9, { life: 1.1, vy: -20 });
+    Audio.sfx("skill");
+  }
+
+  function updateSpiritSwords(dt) {
+    const p = G.player;
+    if (!p || !G.spiritSwords || !G.spiritSwords.length) return;
+    const pct = 0.3;
+    for (const s of G.spiritSwords) {
+      s.t += dt;
+      s.duration -= dt;
+      s.cd -= dt;
+      s.hitT = Math.max(0, s.hitT - dt);
+      if (p.dead) continue;
+      const base = G.time * 1.6 + (s.index / 5) * Math.PI * 2;
+      const ox = Math.cos(base) * 26;
+      const oy = Math.sin(base) * 12 + Math.sin(G.time * 3 + s.index * 1.3) * 4;
+      const targetX = p.x - p.facing * 14 + ox;
+      const targetY = p.y - 32 + oy;
+      s.px = s.x;
+      s.py = s.y;
+      s.x = lerp(s.x, targetX, 1 - Math.exp(-10 * dt));
+      s.y = lerp(s.y, targetY, 1 - Math.exp(-10 * dt));
+      if (s.cd <= 0) {
+        let target = null;
+        let best = 340;
+        for (const e of G.enemies) {
+          if (e.dead || e.spawnT > 0) continue;
+          const d = Math.hypot(e.x - s.x, e.y - e.h * 0.5 - s.y);
+          if (d < best) {
+            best = d;
+            target = e;
+          }
+        }
+        if (target) {
+          s.cd = 1.1;
+          s.hitT = 0.3;
+          s.angle = Math.atan2(target.y - target.h * 0.5 - s.y, target.x - s.x);
+          const dmg = Math.max(1, p.stats.atk * pct * rand(0.92, 1.08));
+          damageEnemy(target, dmg, { source: "swordSoul" });
+          addEffect({ kind: "hit", x: target.x, y: target.y - target.h * 0.55, duration: 0.2, seed: rand(0, 6) });
+          addEffect({ kind: "slash", x: target.x, y: target.y - target.h * 0.5, facing: Math.sign(target.x - s.x) || 1, radius: 16, duration: 0.16, color: "#8fe8ff" });
+          Audio.sfx("slash");
+        } else {
+          s.cd = 0.2;
+          // 待机动画：缓慢摆动剑身 + 飘落灵光
+          s.angle = (p.facing < 0 ? Math.PI : 0) - 0.85 - s.index * 0.06 + Math.sin(G.time * 2.2 + s.index * 0.9) * 0.28;
+          if (Math.random() < 0.12) {
+            addParticle({
+              x: s.x + rand(-4, 4),
+              y: s.y + rand(-3, 3),
+              vx: rand(-8, 8),
+              vy: rand(-26, -8),
+              life: rand(0.3, 0.6),
+              size: 1,
+              color: Math.random() < 0.5 ? "#8fe8ff" : "#d8f6ff",
+              gravity: -12
+            });
+          }
+        }
+      }
+    }
+    G.spiritSwords = G.spiritSwords.filter((s) => s.duration > 0);
+  }
+
+  /* ---------------- 怒气系统 ---------------- */
+  function gainRage(amount) {
+    const p = G.player;
+    if (!p || p.dead || p.rageActive) return;
+    p.rage = Math.min(RAGE_MAX, (p.rage || 0) + amount);
+  }
+
+  function tryRage() {
+    const p = G.player;
+    if (!p || p.dead || G.mode !== "playing") return;
+    if (p.rageActive) return;
+    if ((p.rageCd || 0) > 0) {
+      showToast("怒气冷却中", `${Math.ceil(p.rageCd)} 秒后可再次爆发`);
+      Audio.sfx("error");
+      return;
+    }
+    if ((p.rage || 0) < RAGE_MAX) {
+      showToast("怒气不足", `还需 ${Math.ceil(RAGE_MAX - (p.rage || 0))} 点怒气`);
+      Audio.sfx("error");
+      return;
+    }
+    p.rage = 0;
+    p.rageActive = true;
+    p.rageT = RAGE_DURATION;
+    p.rageCd = RAGE_DURATION + RAGE_CD;
+    recalcStats();
+    rageSkinEffect(p.skin);
+    addEffect({ kind: "ring", x: p.x, y: p.y - 16, radius: 8, grow: 120, duration: 0.55, color: "#ff9a3d" });
+    addEffect({ kind: "burst", x: p.x, y: p.y - 22, duration: 0.5, color: "#ffd76a", count: 18, spread: 30 });
+    G.screenFlash = { color: "#ffb03d", alpha: 0.18, t: 0.35, duration: 0.35 };
+    shakeScreen(0.9, 0.35);
+    Audio.sfx("levelup");
+    const extra = rageSkinHint(p.skin);
+    showToast("怒气爆发！", `攻击力 +30%，持续 ${RAGE_DURATION} 秒${extra ? ` · ${extra}` : ""}`);
+  }
+
+  function rageSkinHint(skin) {
+    if (skin === "mecha") return "蜂群火箭齐射";
+    if (skin === "ruined") return "召唤五个小弟";
+    if (skin === "specter") return "幽魂超远斩";
+    return "";
+  }
+
+  function rageSkinEffect(skin) {
+    const p = G.player;
+    if (!p) return;
+    if (skin === "mecha") rageSwarmRockets();
+    else if (skin === "ruined") {
+      const lv = skillLevel("reinforce") || 1;
+      summonMinions(lv, 5);
+      showToast("破败兵团集结", "五个小弟加入战斗");
+    } else if (skin === "specter") rageSpecterSlash();
+  }
+
+  function rageSwarmRockets() {
+    const p = G.player;
+    if (!p) return;
+    const count = 10;
+    const per = (p.stats.atk * 20) / count; // 总计 2000% 攻击力
+    const enemies = G.enemies.filter((e) => !e.dead && e.spawnT <= 0 && Math.abs(e.x - p.x) < 520);
+    G.rageRockets = G.rageRockets || [];
+    for (let i = 0; i < count; i++) {
+      const target = enemies.length ? enemies[i % enemies.length] : null;
+      const ang = -Math.PI / 2 + rand(-0.85, 0.85) + (i - (count - 1) / 2) * 0.07;
+      G.rageRockets.push({
+        x: p.x + rand(-6, 6),
+        y: p.y - 26,
+        vx: Math.cos(ang) * rand(160, 240),
+        vy: Math.sin(ang) * rand(140, 220) - 30,
+        target,
+        damage: per,
+        life: 2.4,
+        t: 0,
+        trail: 0
+      });
+    }
+    showToast("蜂群火箭", "十发火箭追踪敌人，总计 2000% 攻击力");
+  }
+
+  function updateRageRockets(dt) {
+    if (!G.rageRockets || !G.rageRockets.length) return;
+    const p = G.player;
+    for (const r of G.rageRockets) {
+      r.life -= dt;
+      r.t += dt;
+      if (r.target && r.target.dead) r.target = null;
+      if (!r.target) {
+        let best = null;
+        let bestD = 300;
+        for (const e of G.enemies) {
+          if (e.dead || e.spawnT > 0) continue;
+          const d = Math.hypot(e.x - r.x, e.y - e.h * 0.5 - r.y);
+          if (d < bestD) {
+            bestD = d;
+            best = e;
+          }
+        }
+        r.target = best;
+      }
+      if (r.target) {
+        const tx = r.target.x;
+        const ty = r.target.y - r.target.h * 0.5;
+        const ang = Math.atan2(ty - r.y, tx - r.x);
+        const sp = Math.hypot(r.vx, r.vy);
+        const turn = Math.min(1, 7 * dt);
+        r.vx = lerp(r.vx, Math.cos(ang) * sp, turn);
+        r.vy = lerp(r.vy, Math.sin(ang) * sp, turn);
+      }
+      r.x += r.vx * dt;
+      r.y += r.vy * dt;
+      r.trail -= dt;
+      if (r.trail <= 0) {
+        r.trail = 0.03;
+        addParticle({
+          x: r.x,
+          y: r.y,
+          vx: rand(-14, 14),
+          vy: rand(-10, 30),
+          life: rand(0.18, 0.34),
+          size: 1,
+          color: Math.random() < 0.5 ? "#ffd76a" : "#ff8a3d",
+          gravity: -12
+        });
+      }
+      let hit = null;
+      for (const e of G.enemies) {
+        if (e.dead || e.spawnT > 0) continue;
+        if (Math.hypot(e.x - r.x, (e.y - e.h * 0.5) - r.y) < 18 + e.w * 0.4) {
+          hit = e;
+          break;
+        }
+      }
+      if (hit) {
+        damageEnemy(hit, r.damage, { source: "rage", dir: Math.sign(r.vx) || 1 });
+        addEffect({ kind: "burst", x: r.x, y: r.y, duration: 0.3, color: "#ffb03d", count: 8, spread: 18 });
+        r.life = 0;
+      }
+      if (r.y < -40 || r.y > FLOOR + 60) r.life = 0;
+    }
+    G.rageRockets = G.rageRockets.filter((r) => r.life > 0);
+  }
+
+  function rageSpecterSlash() {
+    const p = G.player;
+    if (!p) return;
+    const dir = p.facing || 1;
+    const reach = 460;
+    const originY = p.y - 18;
+    const dmg = p.stats.atk * 15; // 1500% 攻击力
+    let hits = 0;
+    for (const e of G.enemies) {
+      if (e.dead || e.spawnT > 0) continue;
+      const dx = (e.x - p.x) * dir;
+      if (dx < -24 || dx > reach) continue;
+      if (Math.abs(e.y - e.h * 0.5 - originY) > 74 + e.h * 0.5) continue;
+      damageEnemy(e, dmg, { dir, source: "rage", crit: true });
+      hits++;
+    }
+    addEffect({
+      kind: "eyeBeam",
+      x: p.x,
+      y: originY,
+      targetX: p.x + dir * reach,
+      targetY: originY,
+      facing: dir,
+      duration: 0.5,
+      color: "#b06bff"
+    });
+    addEffect({ kind: "slash", x: p.x + dir * 170, y: originY, facing: dir, radius: 74, duration: 0.36, color: "#c9a8ff" });
+    for (let i = 0; i < 18; i++) {
+      addParticle({
+        x: p.x + dir * rand(20, reach),
+        y: originY + rand(-40, 40),
+        vx: dir * rand(-40, 120),
+        vy: rand(-70, 10),
+        life: rand(0.2, 0.5),
+        size: rand(1, 2),
+        color: i % 3 === 0 ? "#ffe9ff" : i % 3 === 1 ? "#c9a8ff" : "#8a5fd6",
+        gravity: 40
+      });
+    }
+    G.screenFlash = { color: "#b06bff", alpha: 0.22, t: 0.35, duration: 0.35 };
+    shakeScreen(1.15, 0.4);
+    Audio.sfx("skill");
+    showToast("幽魂超远斩", hits ? `命中 ${hits} 个敌人 · 1500% 攻击力` : "1500% 攻击力横扫前方");
+  }
+
+  function updateRage(dt) {
+    const p = G.player;
+    if (!p) return;
+    if ((p.rageCd || 0) > 0) p.rageCd = Math.max(0, p.rageCd - dt);
+    if (p.rageActive) {
+      p.rageT -= dt;
+      if (p.rageT <= 0) {
+        p.rageActive = false;
+        p.rageT = 0;
+        recalcStats();
+        showToast("怒气平息", "攻击力加成结束");
+      }
+    }
   }
 
   function damageCloneInArea(x, y, radius, amount) {
@@ -5696,6 +6510,52 @@
     const dx = p.x - e.x;
     const adx = Math.abs(dx);
 
+    // 后羿魔化变身：2 秒无敌咏唱
+    if (e.transforming > 0) {
+      e.transforming -= dt;
+      e.state = "cast";
+      e.vx = 0;
+      e.kx = 0;
+      e.attackT = 0;
+      applyEnemyPhysics(e, dt);
+      if (Math.random() < 0.6) {
+        addParticle({
+          x: e.x + rand(-22, 22),
+          y: FLOOR - rand(4, 52),
+          vx: rand(-30, 30),
+          vy: rand(-90, -30),
+          life: rand(0.3, 0.7),
+          size: rand(1, 2),
+          color: Math.random() < 0.5 ? "#b06bff" : "#ff8ad8",
+          gravity: -30
+        });
+      }
+      if (e.transforming <= 0) {
+        e.transforming = 0;
+        e.demon = true;
+        e.hp = e.maxHp;
+        e.poise = e.maxPoise;
+        e.poiseBroken = false;
+        e.speed *= 1.18;
+        e.windup = Math.max(0.2, e.windup * 0.78);
+        e.recover = Math.max(0.25, e.recover * 0.7);
+        e.cooldown = 0.3;
+        G.sunDemon = true;
+        G.sunSuns = 9;
+        G.sunBurn = 0.02;
+        G.visionLimit = false;
+        G.screenFlash = { color: "#7a2f9f", alpha: 0.42, t: 0.8, duration: 0.8 };
+        shakeScreen(1.6, 0.9);
+        addEffect({ kind: "rift", x: e.x, y: FLOOR, duration: 1.2, color: "#b06bff" });
+        for (let i = 0; i < 10; i++) {
+          addEffect({ kind: "ring", x: e.x, y: FLOOR - 10 - i * 4, radius: 8 + i * 4, grow: 90, duration: 0.7 + i * 0.06, color: i % 2 ? "#b06bff" : "#ff8ad8" });
+        }
+        showToast("魔化 · 后羿", "九日重现，化作紫色魔气 · 灼烧提升至 2%");
+        Audio.sfx("boss");
+      }
+      return;
+    }
+
     // 韧性回复期：无法行动，直到回满
     if (e.maxPoise > 0 && e.poiseBroken) {
       e.poise = Math.min(e.maxPoise, e.poise + e.poiseRegenRate * dt);
@@ -5731,6 +6591,11 @@
       e.cooldown -= dt;
       if (adx > 8) e.facing = Math.sign(dx);
       if (adx > e.range) e.x += e.facing * e.speed * dt;
+      // 后羿的强制技能（半血射日 / 10% 魔化）
+      if (e.forcePattern) {
+        startBossPattern(e);
+        return;
+      }
       if (e.cooldown <= 0 && adx < 240) startBossPattern(e);
       return;
     }
@@ -5747,7 +6612,7 @@
       e.attackT = 1;
       if (e.stateT <= 0) {
         e.state = "recover";
-        e.stateT = e.recover * (e.phaseTriggered ? 0.45 : 0.62);
+        e.stateT = e.recover * (e.phaseTriggered ? 0.35 : 0.5) * (e.demon ? 0.7 : 1);
         e.attackT = 0;
       }
       return;
@@ -5804,7 +6669,7 @@
       e.stateT -= dt;
       if (e.stateT <= 0) {
         e.state = "chase";
-        e.cooldown = rand(0.45, 0.85) * (e.phaseTriggered ? 0.7 : 1);
+        e.cooldown = rand(0.3, 0.6) * (e.phaseTriggered ? 0.65 : 1);
       }
       return;
     }
@@ -5813,8 +6678,15 @@
   function startBossPattern(e) {
     const p = G.player;
     if (!p) return;
-    const pattern = e.patterns[e.patternIndex % e.patterns.length];
-    e.patternIndex++;
+    let pattern;
+    if (e.forcePattern) {
+      pattern = e.forcePattern;
+      e.forcePattern = null;
+      e.patternIndex = Math.max(0, e.patterns.indexOf(pattern)) + 1;
+    } else {
+      pattern = e.patterns[e.patternIndex % e.patterns.length];
+      e.patternIndex++;
+    }
     e.pattern = pattern;
     const skillDef = D.BOSS_SKILLS[pattern] || { name: pattern, type: "common" };
     e.currentSkillName = skillDef.name;
@@ -5987,10 +6859,53 @@
     } else if (pattern === "endlessNight") {
       duration = 0.86;
       telegraph = { shape: "circle", x: p.x, y: FLOOR, radius: 120, color: "#7a2f4f" };
+    } else if (pattern === "longArrow") {
+      duration = 0.62;
+      telegraph = {
+        shape: "line",
+        x: e.x,
+        y: e.y - 22,
+        facing: e.facing,
+        length: 520,
+        width: 22,
+        color: "#ffd76a"
+      };
+    } else if (pattern === "tripleArrow") {
+      duration = 0.5;
+      telegraph = {
+        shape: "line",
+        x: e.x,
+        y: e.y - 20,
+        facing: e.facing,
+        length: 260,
+        width: 42,
+        color: "#ffe9a8"
+      };
+    } else if (pattern === "arrowRain") {
+      duration = 0.72;
+      telegraph = { shape: "circle", x: p.x, y: FLOOR, radius: 96, color: "#ffb03d" };
+    } else if (pattern === "chargedShot") {
+      duration = 3;
+      telegraph = {
+        shape: "line",
+        x: e.x,
+        y: e.y - 22,
+        facing: e.facing,
+        length: 620,
+        width: 30,
+        color: "#ff5a3d"
+      };
+    } else if (pattern === "sunShot") {
+      duration = 0.9;
+      telegraph = { shape: "circle", x: p.x, y: FLOOR, radius: 150, color: "#ff8a3d" };
+    } else if (pattern === "demonForm") {
+      duration = 0.6;
+      telegraph = { shape: "circle", x: e.x, y: FLOOR, radius: 120, color: "#b06bff" };
     }
 
-    // v2.4：妖王出手更快、预警范围更大；狂暴后进一步加速
-    duration *= 0.78 * (e.phaseTriggered ? 0.75 : 1);
+    // 妖王出手更快、预警范围更大；狂暴 / 魔化后进一步加速
+    duration *= 0.68 * (e.phaseTriggered ? 0.72 : 1) * (e.demon ? 0.78 : 1);
+    if (pattern === "chargedShot") duration = 3;
     if (telegraph) {
       if (telegraph.radius) telegraph.radius *= 1.32;
       if (telegraph.length) telegraph.length *= 1.32;
@@ -6404,6 +7319,143 @@
         Audio.sfx("boss");
         break;
       }
+      case "longArrow": {
+        // 技能一：超远箭矢
+        e.state = "attack";
+        e.stateT = 0.36;
+        e.attackT = 1;
+        const sy = e.y - 22;
+        spawnEnemyProjectile({
+          type: "arrow",
+          x: e.x + e.facing * 26,
+          y: sy,
+          vx: e.facing * 520,
+          vy: 0,
+          radius: 14,
+          damage: e.atk * 1.5,
+          life: 2.4,
+          color: e.demon ? "#c9a8ff" : "#ffd76a",
+          pierce: true
+        });
+        addEffect({ kind: "slash", x: e.x + e.facing * 40, y: sy, facing: e.facing, radius: 26, duration: 0.2, color: "#ffe9a8" });
+        Audio.sfx("slash");
+        break;
+      }
+      case "tripleArrow": {
+        // 技能二：近距离三连箭矢
+        e.state = "attack";
+        e.stateT = 0.42;
+        e.attackT = 1;
+        const sy = e.y - 20;
+        const base = Math.atan2(p.y - 16 - sy, p.x - (e.x + e.facing * 22));
+        for (let i = -1; i <= 1; i++) {
+          const a = base + i * 0.16;
+          spawnEnemyProjectile({
+            type: "arrow",
+            x: e.x + e.facing * 22,
+            y: sy,
+            vx: Math.cos(a) * 440,
+            vy: Math.sin(a) * 440,
+            radius: 11,
+            damage: e.atk * 1.05,
+            life: 1.8,
+            color: e.demon ? "#c9a8ff" : "#ffe9a8"
+          });
+        }
+        Audio.sfx("slash");
+        break;
+      }
+      case "arrowRain": {
+        // 技能三：从天而降的小范围箭雨
+        e.state = "cast";
+        e.stateT = 0.6;
+        e.attackT = 1;
+        const count = e.demon ? 16 : 11;
+        for (let i = 0; i < count; i++) {
+          spawnEnemyProjectile({
+            type: "arrow",
+            x: clamp(p.x + rand(-88, 88), 30, WORLD_W - 30),
+            y: FLOOR - 190 - rand(0, 40),
+            vx: rand(-12, 12),
+            vy: 400 + rand(0, 90),
+            gravity: 60,
+            radius: 10,
+            damage: e.atk * 0.85,
+            life: 1.9,
+            color: "#ffb03d"
+          });
+          addEffect({ kind: "ring", x: p.x + rand(-88, 88), y: FLOOR, radius: 4, grow: 22, duration: 0.3, color: "#ffcf7a" });
+        }
+        shakeScreen(0.7, 0.3);
+        Audio.sfx("bosswind");
+        break;
+      }
+      case "chargedShot": {
+        // 技能五：蓄力三秒后的极速重箭
+        e.state = "attack";
+        e.stateT = 0.5;
+        e.attackT = 1;
+        const sy = e.y - 22;
+        spawnEnemyProjectile({
+          type: "arrow",
+          x: e.x + e.facing * 28,
+          y: sy,
+          vx: e.facing * 940,
+          vy: 0,
+          radius: 20,
+          damage: e.atk * 3.6,
+          life: 2.4,
+          color: "#ff6b3d",
+          pierce: true,
+          big: true
+        });
+        for (let i = 0; i < 6; i++) {
+          addEffect({ kind: "ring", x: e.x + e.facing * (20 + i * 26), y: sy, radius: 4 + i * 2, grow: 60, duration: 0.4, color: "#ff8a3d" });
+        }
+        G.screenFlash = { color: "#ff9a3d", alpha: 0.24, t: 0.35, duration: 0.35 };
+        shakeScreen(1.4, 0.55);
+        Audio.sfx("skill");
+        break;
+      }
+      case "sunShot": {
+        // 技能四：半血触发射日 —— 视野受限（持续到魔化阶段）
+        e.state = "cast";
+        e.stateT = 0.8;
+        e.attackT = 1;
+        e.sunShotDone = true;
+        G.visionLimit = true;
+        const sy = e.y - 22;
+        for (let i = -3; i <= 3; i++) {
+          const a = -Math.PI / 2 + i * 0.2;
+          spawnEnemyProjectile({
+            type: "arrow",
+            x: e.x,
+            y: sy,
+            vx: Math.cos(a) * 380,
+            vy: Math.sin(a) * 380 - 120,
+            gravity: 180,
+            radius: 12,
+            damage: e.atk * 1.1,
+            life: 2.2,
+            color: "#ff8a3d"
+          });
+        }
+        G.screenFlash = { color: "#ffcf7a", alpha: 0.36, t: 0.6, duration: 0.6 };
+        shakeScreen(1.2, 0.5);
+        showToast("射日 · 视野受限", "烈日灼目，只能看清前方一片区域，直到后羿魔化");
+        Audio.sfx("gong");
+        break;
+      }
+      case "demonForm": {
+        // 技能六：10% 血量触发魔化（2 秒变身，随后回满血、九日重现）
+        e.state = "cast";
+        e.stateT = 0.4;
+        e.attackT = 1;
+        e.transforming = 2;
+        showToast("后羿 · 魔化", "变身过程中无法行动，九日将以魔气重现");
+        Audio.sfx("boss");
+        break;
+      }
       case "fireWheel": {
         e.state = "charge";
         e.stateT = 0.55;
@@ -6657,6 +7709,11 @@
     }
     e.hp -= dmg;
 
+    // 怒气积攒：玩家自身攻击 / 技能 / 法宝命中（召唤物与持续伤害不计）
+    if (!dot && !["swordSoul", "minion", "boss", "burn"].includes(opts.source)) {
+      gainRage(e.boss ? 3 : 5);
+    }
+
     if (dot) {
       addText(`${dmg}`, e.x + rand(-5, 5), e.y - e.h - 7, "#ffb45d", 6, { life: 0.5, vy: -16 });
       if (e.hp <= 0) killEnemy(e);
@@ -6716,6 +7773,24 @@
     G.comboTimer = 1.55;
     G.maxCombo = Math.max(G.maxCombo, G.combo);
 
+    if (e.boss && e.hp > 0 && e.name === "后羿") {
+      // 技能四：半血触发射日（一次性；视野受限持续到魔化阶段）
+      if (!e.sunShotDone && e.hp / e.maxHp <= 0.5 && !e.demon && e.transforming <= 0) {
+        e.sunShotDone = true;
+        e.forcePattern = "sunShot";
+        G.visionLimit = true;
+        G.screenFlash = { color: "#ffcf7a", alpha: 0.3, t: 0.5, duration: 0.5 };
+        shakeScreen(1.2, 0.5);
+        showToast("射日 · 视野受限", "烈日灼目，只能看清前方一片区域，直到后羿魔化");
+        Audio.sfx("gong");
+      }
+      // 技能六：血量 10% 触发魔化
+      if (!e.demonPhaseTriggered && !e.demon && e.transforming <= 0 && e.hp / e.maxHp <= 0.1) {
+        e.demonPhaseTriggered = true;
+        e.forcePattern = "demonForm";
+      }
+    }
+
     if (e.boss && !e.phaseTriggered && e.hp / e.maxHp <= e.phase2) {
       e.phaseTriggered = true;
       e.speed *= 1.16;
@@ -6758,6 +7833,7 @@
 
     G.killCount++;
     G.totalKills++;
+    gainRage(e.boss ? 24 : 12);
     const p = G.player;
     const gold = Math.round(e.gold * (1 + (p ? p.stats.goldPct : 0)));
     G.gold += gold;
@@ -6857,7 +7933,7 @@
     G.essence += essenceGain;
     const jadeGain = 1 + (G.stageIndex >= 3 ? 1 : 0);
     G.treasureJade += jadeGain;
-    const specialKey = ["purification", "heavenSeal", "chaosBell"][Math.min(2, Math.floor(G.stageIndex / 3))];
+    const specialKey = ["purification", "heavenSeal", "chaosBell", "demonCore", "dragonScale", "starShard", "chaosOrb"][Math.min(6, Math.floor(G.stageIndex / 3))];
     G.artifactMats[specialKey] = (G.artifactMats[specialKey] || 0) + 1;
     const specialName = D.MATERIALS[specialKey].name;
     // 每三关妖王掉落一枚翅膀材料
@@ -7310,6 +8386,9 @@
       if (effect.kind === "afterimage") drawEffect(effect);
     }
 
+    for (const r of G.rageRockets || []) A.drawRocket(ctx, r.x, r.y, Math.atan2(r.vy, r.vx), G.time);
+      for (const mn of G.minions || []) A.drawMinion(ctx, mn, G.time, { showTimer: true });
+
     if (G.clone && !G.clone.dead) A.drawClone(ctx, G.clone, G.time, playerAppearance());
 
     const p = G.player;
@@ -7350,10 +8429,27 @@
           A.halo(ctx, p.x, p.y - 12, 20, "#fff3b8", 0.12);
         }
       }
+      for (const s of G.spiritSwords || []) {
+        if (s.px !== undefined) {
+          ctx.save();
+          ctx.globalAlpha = 0.22;
+          A.drawSpiritSword(ctx, lerp(s.px, s.x, 0.5), lerp(s.py, s.y, 0.5), G.time, s.angle, "#8fe8ff", 0);
+          ctx.restore();
+        }
+        A.drawSpiritSword(ctx, s.x, s.y, G.time, s.angle, "#8fe8ff", s.hitT);
+      }
       if (p.regenT > 0) {
         A.halo(ctx, p.x, p.y - 16, 20, "#79e6c1", 0.1 + Math.sin(G.time * 4) * 0.03);
       }
       let statusY = p.y - 52;
+      if (G.spiritSwords && G.spiritSwords.length) {
+        A.drawText(ctx, `剑魂 ×${G.spiritSwords.length}`, p.x, statusY, { size: 5, color: "#8fe8ff", strokeWidth: 2 });
+        statusY -= 8;
+      }
+      if (G.minions && G.minions.length) {
+        A.drawText(ctx, `增援 ×${G.minions.length}`, p.x, statusY, { size: 5, color: "#7ce9cb", strokeWidth: 2 });
+        statusY -= 8;
+      }
       if (p.goldenT > 0) {
         A.drawText(ctx, `法相金身 ${p.goldenT.toFixed(1)}s`, p.x, statusY, { size: 6, color: "#ffe08a", strokeWidth: 2 });
         statusY -= 8;
@@ -7374,24 +8470,13 @@
         A.drawText(ctx, `甘露 ${p.regenT.toFixed(1)}s`, p.x, statusY, { size: 5, color: "#8ff0d4", strokeWidth: 2 });
         statusY -= 8;
       }
+      if (G.sunBurn > 0) {
+        A.drawText(ctx, `九日灼烧 ${(G.sunBurn * 100).toFixed(0)}%/秒`, p.x, statusY, { size: 5, color: "#ff9a3d", strokeWidth: 2 });
+        statusY -= 8;
+      }
       const titleDef = D.TITLES[p.title];
       if (titleDef && titleDef.id !== "none") {
-        const label = titleDef.name;
-        const plateW = label.length * 7 + 14;
-        const plateH = 13;
-        const px0 = Math.round(p.x - plateW / 2);
-        const py0 = Math.round(statusY - plateH + 2);
-        ctx.save();
-        ctx.globalAlpha = 0.86;
-        A.rect(ctx, px0, py0, plateW, plateH, "rgba(12,10,18,0.84)");
-        ctx.restore();
-        A.rect(ctx, px0, py0, plateW, 1, "#f0c85a");
-        A.rect(ctx, px0, py0 + plateH - 1, plateW, 1, "#8a6420");
-        A.rect(ctx, px0, py0, 1, plateH, "#f0c85a");
-        A.rect(ctx, px0 + plateW - 1, py0, 1, plateH, "#8a6420");
-        A.rect(ctx, px0 + 1, py0 + 1, plateW - 2, 1, "rgba(255,220,120,0.18)");
-        A.rect(ctx, px0 + 2, py0 + 2, 1, plateH - 4, "rgba(255,220,120,0.25)");
-        A.drawText(ctx, label, p.x, py0 + plateH / 2 + 0.5, { size: 7, color: "#ffe8a8", weight: 800, strokeWidth: 2 });
+        drawTitlePlate(ctx, p, titleDef, statusY);
       }
     }
 
@@ -7427,6 +8512,112 @@
     }
   }
 
+  /* ---------------- 称号名牌：不同称号对应不同边框 ---------------- */
+  const TITLE_FRAMES = {
+    gold: { edge: "#ffd76a", edge2: "#8a6420", glow: "#ffe9a8", deco: "crest" },
+    jade: { edge: "#7ce9cb", edge2: "#256b58", glow: "#b8fff0", deco: "leaf" },
+    steel: { edge: "#cfe0f5", edge2: "#4a5f7d", glow: "#eaf4ff", deco: "blade" },
+    royal: { edge: "#e6c35a", edge2: "#6f4a12", glow: "#fff0b8", deco: "crown" },
+    lotus: { edge: "#ffd9f0", edge2: "#8a4a72", glow: "#ffeaf8", deco: "petal" },
+    demonic: { edge: "#ff7a6a", edge2: "#6d1f1c", glow: "#ffb3a0", deco: "horn" },
+    herb: { edge: "#9be66a", edge2: "#3d6b28", glow: "#dcffc4", deco: "leaf" },
+    star: { edge: "#b48cff", edge2: "#4a2f7a", glow: "#e6d8ff", deco: "star" },
+    treasure: { edge: "#ffc85a", edge2: "#7a4a12", glow: "#ffe6b0", deco: "gem" },
+    void: { edge: "#c07aff", edge2: "#3a1c52", glow: "#ff8ad8", deco: "rune" }
+  };
+
+  const TITLE_FRAME_LABEL = {
+    gold: "鎏金边框", jade: "青玉边框", steel: "玄铁边框", royal: "紫金边框", lotus: "莲花边框",
+    demonic: "魔纹边框", herb: "灵草边框", star: "星辰边框", treasure: "秘宝边框", void: "虚空边框"
+  };
+
+  function titleFrameOf(titleDef) {
+    return TITLE_FRAMES[(titleDef && titleDef.frame) || "gold"] || TITLE_FRAMES.gold;
+  }
+
+  function drawTitlePlate(ctx, p, titleDef, statusY) {
+    const label = titleDef.name;
+    const f = titleFrameOf(titleDef);
+    const plateW = label.length * 7 + 20;
+    const plateH = 15;
+    const px0 = Math.round(p.x - plateW / 2);
+    const py0 = Math.round(statusY - plateH + 2);
+    const pulse = 0.14 + Math.sin(G.time * 3) * 0.05;
+
+    // 外发光
+    ctx.save();
+    ctx.globalAlpha = pulse;
+    A.rect(ctx, px0 - 2, py0 - 2, plateW + 4, plateH + 4, f.edge);
+    ctx.restore();
+    // 底板（双层描边 + 高光）
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    A.rect(ctx, px0, py0, plateW, plateH, "rgba(10,8,16,0.88)");
+    ctx.restore();
+    A.rect(ctx, px0 + 1, py0 + 1, plateW - 2, plateH - 2, "rgba(255,255,255,0.05)");
+    A.rect(ctx, px0, py0, plateW, 1, f.edge);
+    A.rect(ctx, px0, py0 + plateH - 1, plateW, 1, f.edge2);
+    A.rect(ctx, px0, py0, 1, plateH, f.edge);
+    A.rect(ctx, px0 + plateW - 1, py0, 1, plateH, f.edge2);
+    A.rect(ctx, px0 + 1, py0 + 1, plateW - 2, 1, f.glow);
+    A.rect(ctx, px0 + 2, py0 + 2, plateW - 4, 1, "rgba(255,255,255,0.14)");
+    A.rect(ctx, px0 + 2, py0 + plateH - 3, plateW - 4, 1, "rgba(0,0,0,0.4)");
+
+    // 四角装饰（每个称号不同形状）
+    const corner = (cx, cy, sx, sy) => {
+      A.rect(ctx, cx, cy, sx * 4, 2, f.glow);
+      A.rect(ctx, cx, cy, 2, sy * 4, f.glow);
+      A.rect(ctx, cx + sx * 3, cy + sy * 3, sx * 2, 2, f.edge);
+      A.rect(ctx, cx + sx * 3, cy + sy * 3, 2, sy * 2, f.edge);
+    };
+    corner(px0 - 1, py0 - 1, 1, 1);
+    corner(px0 + plateW - 3, py0 - 1, -1, 1);
+    corner(px0 - 1, py0 + plateH - 3, 1, -1);
+    corner(px0 + plateW - 3, py0 + plateH - 3, -1, -1);
+
+    // 顶部纹章
+    const mx = p.x;
+    const my = py0 - 4;
+    if (f.deco === "crest") {
+      A.rect(ctx, mx - 1, my - 4, 2, 6, f.edge);
+      A.rect(ctx, mx - 4, my - 1, 8, 2, f.edge);
+      A.rect(ctx, mx - 2, my - 3, 4, 4, f.glow);
+    } else if (f.deco === "leaf") {
+      A.rect(ctx, mx - 5, my - 2, 4, 2, f.edge);
+      A.rect(ctx, mx + 1, my - 2, 4, 2, f.edge);
+      A.rect(ctx, mx - 1, my - 4, 2, 5, f.glow);
+    } else if (f.deco === "blade") {
+      A.rect(ctx, mx - 1, my - 5, 2, 7, f.glow);
+      A.rect(ctx, mx - 3, my + 1, 6, 2, f.edge);
+    } else if (f.deco === "crown") {
+      A.rect(ctx, mx - 5, my - 2, 10, 3, f.edge);
+      for (let i = -1; i <= 1; i++) A.rect(ctx, mx + i * 4 - 1, my - 5, 2, 4, f.glow);
+    } else if (f.deco === "petal") {
+      A.rect(ctx, mx - 6, my - 1, 3, 2, f.edge);
+      A.rect(ctx, mx - 3, my - 3, 6, 4, f.glow);
+      A.rect(ctx, mx + 3, my - 1, 3, 2, f.edge);
+    } else if (f.deco === "horn") {
+      A.rect(ctx, mx - 6, my - 3, 2, 4, f.edge);
+      A.rect(ctx, mx + 4, my - 3, 2, 4, f.edge);
+      A.rect(ctx, mx - 2, my - 2, 4, 3, f.glow);
+    } else if (f.deco === "star") {
+      A.rect(ctx, mx - 1, my - 5, 2, 9, f.glow);
+      A.rect(ctx, mx - 5, my - 1, 9, 2, f.glow);
+      A.rect(ctx, mx - 1, my - 1, 2, 2, f.edge);
+    } else if (f.deco === "gem") {
+      A.rect(ctx, mx - 3, my - 3, 6, 5, f.edge);
+      A.rect(ctx, mx - 1, my - 2, 2, 3, f.glow);
+    } else {
+      A.rect(ctx, mx - 6, my - 3, 12, 1, f.edge);
+      A.rect(ctx, mx - 6, my + 1, 12, 1, f.edge2);
+      A.rect(ctx, mx - 2, my - 2, 4, 3, f.glow);
+    }
+
+    // 称号文字（加描边与高光，更清晰）
+    A.drawText(ctx, label, p.x, py0 + plateH / 2 + 0.5, { size: 9, color: f.glow, weight: 800, strokeWidth: 3 });
+    A.drawText(ctx, label, p.x, py0 + plateH / 2, { size: 9, color: "#ffffff", weight: 800, strokeWidth: 1 });
+  }
+
   function drawBackground() {
     const cam = G.camera.x;
     const biome = G.stage ? G.stage.biome : "mountain";
@@ -7448,6 +8639,9 @@
     } else if (biome === "sky") {
       A.drawSkyBackground(ctx, cam, G.time);
       A.drawGround(ctx, "sky", cam, G.time);
+    } else if (biome === "ninesun") {
+      A.drawNineSunBackground(ctx, cam, G.time, { suns: G.sunSuns, demon: G.sunDemon });
+      A.drawGround(ctx, "ninesun", cam, G.time);
     } else {
       A.drawMountainRange(ctx, cam, G.time);
       A.drawGround(ctx, "mountain", cam, G.time);
@@ -7477,6 +8671,38 @@
     drawWorldContent();
     ctx.restore();
     ctx.restore();
+
+    // 射日：视野受限（只保留身前一块可见区域，直到后羿魔化）
+    if (G.visionLimit && G.mode !== "title" && G.player) {
+      const pl = G.player;
+      const px = clamp(pl.x - G.camera.x, 0, W);
+      const py = clamp(pl.y - 18, 0, H);
+      const dir = pl.facing >= 0 ? 1 : -1;
+      const w = 168;
+      const h = 96;
+      const winX = dir > 0 ? px - 42 : px - w + 42;
+      const winY = py - h * 0.62;
+      ctx.save();
+      ctx.fillStyle = "rgba(12, 6, 14, 0.86)";
+      // 以玩家前方矩形为可见窗口，四周压黑
+      ctx.fillRect(0, 0, W, Math.max(0, winY));
+      ctx.fillRect(0, winY + h, W, H - (winY + h));
+      ctx.fillRect(0, Math.max(0, winY), Math.max(0, winX), h);
+      ctx.fillRect(winX + w, Math.max(0, winY), W - (winX + w), h);
+      // 窗口边缘柔化
+      const edge = ctx.createLinearGradient(winX, 0, winX + w, 0);
+      edge.addColorStop(0, "rgba(255, 207, 122, 0.22)");
+      edge.addColorStop(0.5, "rgba(255, 207, 122, 0.05)");
+      edge.addColorStop(1, "rgba(255, 207, 122, 0.22)");
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = edge;
+      ctx.fillRect(winX, Math.max(0, winY), w, 2);
+      ctx.fillRect(winX, winY + h - 2, w, 2);
+      ctx.globalAlpha = 1;
+      A.drawText(ctx, "烈日灼目", W / 2, 18, { size: 7, color: "#ffcf7a", strokeWidth: 3 });
+      A.drawText(ctx, "视野受限 · 后羿魔化后恢复", W / 2, 28, { size: 5, color: "#ffe9a8", strokeWidth: 2 });
+      ctx.restore();
+    }
 
     if (G.screenFlash) {
       const f = G.screenFlash;
@@ -7551,6 +8777,10 @@
 
     updatePlayer(step);
     updateClone(step);
+    updateMinions(step);
+    updateSpiritSwords(step);
+    updateRage(step);
+    updateRageRockets(step);
     updateEnemies(step);
     updateProjectiles(step);
     updateHazards(step);

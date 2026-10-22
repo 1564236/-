@@ -18,8 +18,61 @@
       this.step = 0;
       this.scene = "mountain";
       this.boss = false;
-      this.tempo = 104;
+      this.tempo = 152;
       this.intensity = 0;
+      // BGM：默认使用内置 UniCube 风格合成曲；若 audio/unicube.* 存在则优先播放
+      this.bgmName = "unicube";
+      this.customBgm = null;
+      this.customNode = null;
+      this.customLoading = false;
+    }
+
+    /* ---------------- BGM：自定义音频优先，缺失时用内置合成曲 ---------------- */
+    tryLoadCustomBgm() {
+      if (this.customBgm || this.customLoading || !this.ctx) return;
+      // 目标曲目：Leoseven - UNICUBE（需自行放入 audio/ 目录）
+      const bases = ["unicube", "UNICUBE", "UniCube", "leoseven-unicube", "Leoseven-UNICUBE", "leoseven_unicube", "bgm"];
+      const exts = ["mp3", "ogg", "wav", "m4a"];
+      const candidates = [];
+      for (const base of bases) for (const ext of exts) candidates.push(`audio/${base}.${ext}`);
+      this.customLoading = true;
+      const attempt = (i) => {
+        if (i >= candidates.length) {
+          this.customLoading = false;
+          console.info("[BGM] 未检测到 audio/unicube.mp3（Leoseven - UNICUBE），当前播放内置合成曲。放入音频文件后刷新即可切换。");
+          return;
+        }
+        fetch(candidates[i])
+          .then((res) => {
+            if (!res.ok) throw new Error("missing");
+            return res.arrayBuffer();
+          })
+          .then((buf) => this.ctx.decodeAudioData(buf))
+          .then((decoded) => {
+            this.customBgm = decoded;
+            this.customLoading = false;
+            this.playCustomBgm();
+            console.info(`[BGM] 已载入自定义曲目：${candidates[i]}`);
+          })
+          .catch(() => attempt(i + 1));
+      };
+      attempt(0);
+    }
+
+    playCustomBgm() {
+      if (!this.ctx || !this.customBgm || this.customNode) return;
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.customBgm;
+      src.loop = true;
+      src.connect(this.musicBus);
+      src.start();
+      this.customNode = src;
+      // 自定义 BGM 接管后停止内置步进音序器
+      if (this.timer) {
+        clearInterval(this.timer);
+        this.timer = null;
+      }
+      this.bgmName = "unicube";
     }
 
     init() {
@@ -68,6 +121,7 @@
 
         this.startMusic();
         this.started = true;
+        this.tryLoadCustomBgm();
 
         if (ctx.state === "suspended") ctx.resume().catch(() => {});
       } catch (err) {
@@ -103,8 +157,8 @@
       if (changed) {
         this.step = 0;
         if (this.ctx) this.nextTime = this.ctx.currentTime + 0.08;
-        this.tempo = scene === "cave" ? 92 : scene === "bone" ? 88 : scene === "fire" ? 120 : scene === "river" ? 84 : 106;
-        if (boss) this.tempo += 20;
+        // UniCube 风格统一速度，妖王战略微加速
+        this.tempo = boss ? 160 : 152;
       }
     }
 
@@ -125,58 +179,84 @@
       const ahead = 0.22;
       while (this.nextTime < this.ctx.currentTime + ahead) {
         this.scheduleStep(this.step, this.nextTime);
-        this.nextTime += 60 / this.tempo / 2;
+        this.nextTime += 60 / this.tempo / 4;
         this.step++;
       }
     }
 
     scheduleStep(step, t) {
-      const s = step % 32;
+      const prevBus = this._bus;
+      this._bus = this.musicBus;
+      const s = step % 64;
       const isBoss = this.boss;
-      const roots = { mountain: 60, cave: 57, bone: 52 };
-      const root = roots[this.scene] || 60;
+      const t16 = s % 16;
+      // 和弦进行：Am - F - C - G
+      const PROG = [
+        { root: 45, tones: [0, 3, 7, 12] },
+        { root: 41, tones: [0, 4, 7, 12] },
+        { root: 48, tones: [0, 4, 7, 12] },
+        { root: 43, tones: [0, 4, 7, 11] }
+      ];
+      const chord = PROG[((s / 16) | 0) % 4];
 
-      const melodies = {
-        mountain: [0, 7, 9, 12, 9, 7, 4, 7, 0, 7, 12, 16, 14, 12, 9, 7],
-        cave: [0, 3, 7, 10, 7, 3, 0, -2, 0, 3, 7, 12, 10, 7, 3, 0],
-        bone: [0, 5, 7, 12, 10, 7, 5, 0, -3, 0, 5, 7, 12, 10, 7, 5]
-      };
-
-      const melody = melodies[this.scene] || melodies.mountain;
-      const notes = isBoss ? melody.map((n) => n - 5) : melody;
-
-      if (s % 2 === 0) {
-        const idx = s / 2;
-        const midi = root + notes[idx % notes.length] + (s >= 16 ? 12 : 0);
-        this.tone(mtof(midi), t, 0.17, {
-          type: this.scene === "bone" || this.scene === "river" ? "triangle" : "square",
-          gain: isBoss ? 0.055 : 0.043,
-          attack: 0.008,
-          release: 0.1,
-          filter: 2200
-        });
-      }
-
-      if (s % 8 === 0) {
-        this.tone(mtof(root - 24 + (s === 16 ? 7 : 0)), t, 0.42, {
+      // 主音琶音：密集 16 分音符，第二段换一条旋律走向
+      const SHAPE_A = [0, 1, 2, 3, 2, 3, 1, 2, 0, 2, 3, 1, 2, 1, 3, 2];
+      const SHAPE_B = [3, 2, 1, 0, 1, 2, 3, 2, 3, 1, 0, 2, 3, 2, 1, 0];
+      const shape = ((s / 32) | 0) % 2 === 0 ? SHAPE_A : SHAPE_B;
+      const idx = shape[t16];
+      const accent = t16 % 4 === 0;
+      const midi = chord.root + 12 + chord.tones[idx] + (idx >= 3 ? 12 : 0) + (accent ? 0 : 0);
+      this.tone(mtof(midi), t, accent ? 0.16 : 0.11, {
+        type: isBoss ? "sawtooth" : "square",
+        gain: (isBoss ? 0.05 : 0.038) * (accent ? 1.15 : 0.85),
+        attack: 0.005,
+        release: 0.06,
+        filter: isBoss ? 3200 : 2600
+      });
+      // 高八度点缀
+      if (accent) {
+        this.tone(mtof(chord.root + 24 + chord.tones[idx]), t, 0.09, {
           type: "triangle",
-          gain: 0.09,
-          attack: 0.01,
-          release: 0.2,
-          filter: 700
+          gain: isBoss ? 0.02 : 0.015,
+          release: 0.05
         });
       }
-      if (s === 6 || s === 14 || s === 22 || s === 30) {
-        this.tone(mtof(root - 12), t, 0.24, { type: "sine", gain: 0.032, release: 0.16 });
+
+      // 贝斯：正拍 + 反拍
+      if (t16 % 4 === 0) {
+        this.tone(mtof(chord.root - 12), t, 0.2, { type: "sawtooth", gain: isBoss ? 0.095 : 0.078, attack: 0.006, release: 0.1, filter: 520 });
+      } else if (t16 % 4 === 2) {
+        this.tone(mtof(chord.root - 12), t, 0.1, { type: "square", gain: isBoss ? 0.055 : 0.042, release: 0.05, filter: 620 });
       }
 
-      if (s % 4 === 2) this.hat(t, 0.012, 0.035);
-      if (s === 0 || s === 8 || s === 16 || s === 24) this.kick(t, isBoss ? 0.1 : 0.075);
-      if (isBoss && (s === 12 || s === 28)) this.tom(t, 0.055);
+      // 铺底和弦
+      if (t16 === 0 || t16 === 8) {
+        const padGain = t16 === 0 ? (isBoss ? 0.026 : 0.02) : (isBoss ? 0.018 : 0.014);
+        for (const n of [chord.tones[0], chord.tones[1], chord.tones[2]]) {
+          this.tone(mtof(chord.root + 12 + n), t, t16 === 0 ? 0.95 : 0.5, {
+            type: "triangle",
+            gain: padGain,
+            attack: 0.03,
+            release: 0.35,
+            filter: 1700
+          });
+        }
+      }
 
+      // 鼓组
+      if (t16 === 0 || t16 === 8) this.kick(t, isBoss ? 0.11 : 0.085);
+      if (isBoss && (t16 === 6 || t16 === 14)) this.kick(t, 0.06);
+      if (t16 === 4 || t16 === 12) this.snare(t, isBoss ? 0.075 : 0.058);
+      if (t16 % 2 === 0) this.hat(t, t16 % 4 === 0 ? 0.016 : 0.012, t16 % 4 === 0 ? 0.032 : 0.022);
+      if (t16 === 15) this.hat(t, 0.09, 0.026);
+      if (isBoss && (t16 === 10 || t16 === 14)) this.tom(t, 0.05);
+      if (s % 64 === 0) {
+        this.noise(t, 0.5, isBoss ? 0.05 : 0.038, 5200, "highpass", this.musicBus);
+      }
       if (isBoss && s % 16 === 0) {
-        this.tone(mtof(root - 36), t, 0.6, { type: "sawtooth", gain: 0.03, filter: 240, release: 0.4 });
+        this.tone(mtof(chord.root - 36), t, 0.5, { type: "sawtooth", gain: 0.028, filter: 280, release: 0.3 });
       }
+      this._bus = prevBus;
     }
 
     tone(freq, time, duration, opts = {}) {
@@ -200,7 +280,7 @@
         node = filter;
       }
       node.connect(gain);
-      gain.connect(opts.bus || this.sfxBus);
+      gain.connect(opts.bus || this._bus || this.sfxBus);
       const peak = Math.max(0.0001, opts.gain || 0.04);
       const attack = opts.attack === undefined ? 0.004 : opts.attack;
       const release = opts.release === undefined ? 0.05 : opts.release;
@@ -225,7 +305,7 @@
       gain.gain.setValueAtTime(0.0001, time);
       gain.gain.linearRampToValueAtTime(gainValue, time + 0.006);
       gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
-      src.connect(filter).connect(gain).connect(bus || this.sfxBus);
+      src.connect(filter).connect(gain).connect(bus || this._bus || this.sfxBus);
       src.start(time);
       src.stop(time + duration + 0.02);
     }
@@ -240,6 +320,11 @@
 
     tom(t, gainValue = 0.04) {
       this.tone(150, t, 0.12, { type: "sine", gain: gainValue, slide: 90, release: 0.08 });
+    }
+
+    snare(t, gainValue = 0.06) {
+      this.noise(t, 0.14, gainValue, 1900, "bandpass");
+      this.tone(210, t, 0.08, { type: "triangle", gain: gainValue * 0.5, slide: 140, release: 0.05 });
     }
 
     sfx(name, option) {
